@@ -47,6 +47,26 @@ function saveLastStatus(status) {
   fs.writeFileSync(LAST_STATUS_FILE, JSON.stringify(status));
 }
 
+const STATUS_EMOJIS_INCIDENT = {
+  INVESTIGATING: '🕵️‍♂️ Untersuche',
+  IDENTIFIED: '📌 Problem identifiziert',
+  MONITORING: '👀 Beobachtung',
+  RESOLVED: '✅ Behoben'
+};
+
+const IMPACT_EMOJIS = {
+  OPERATIONAL: '✅ Keine Einschränkungen',
+  PARTIALOUTAGE: '⚠️ Teilweise Störung',
+  MINOROUTAGE: '⚠️ Kleinere Störung',
+  MAJOROUTAGE: '🚨 Große Störung'
+};
+
+const MAINTENANCE_STATUS = {
+  NOTSTARTEDYET: '⏳ Noch nicht gestartet',
+  INPROGRESS: '🔧 In Bearbeitung',
+  COMPLETED: '✅ Abgeschlossen'
+};
+
 async function checkStatus() {
   try {
     const response = await axios.get('https://status.scootkit.com/summary.json');
@@ -55,20 +75,58 @@ async function checkStatus() {
     const currentStatus = data.page?.status;
     if (!currentStatus) return;
 
-    const lastStatus = loadLastStatus();
-    if (lastStatus === currentStatus) {
-      console.log('ℹ️ Kein Statuswechsel.');
-      return;
+    const lastStatus = loadLastStatus() || {};
+    let hasChanges = false;
+
+    if (lastStatus.pageStatus !== currentStatus) {
+      const channel = await client.channels.fetch(CHANNEL_ID);
+
+      let emoji = '✅';
+      if (currentStatus.toLowerCase() === 'up') emoji = '✅';
+      else if (currentStatus.toLowerCase() === 'hasissues') emoji = '⚠️';
+      else if (currentStatus.toLowerCase() === 'undermaintenance') emoji = '🛠️';
+
+      await channel.send(`${emoji} **Statusänderung:** ${data.page.name} ist jetzt **${currentStatus.toUpperCase()}**\n🔗 ${data.page.url}`);
+      hasChanges = true;
     }
 
-    const channel = await client.channels.fetch(CHANNEL_ID);
-    let emoji = '✅';
-    if (currentStatus.toLowerCase() === 'up') emoji = '✅';
-    else if (currentStatus.toLowerCase() === 'hasissues') emoji = '⚠️';
-    else if (currentStatus.toLowerCase() === 'undermaintenance') emoji = '🛠️';
+    // Incidents
+    const incidents = JSON.stringify(data.activeIncidents || []);
+    if (lastStatus.incidents !== incidents) {
+      const channel = await client.channels.fetch(CHANNEL_ID);
+      if (data.activeIncidents?.length) {
+        for (const inc of data.activeIncidents) {
+          await channel.send(`🚨 **Incident:** ${inc.name}\n Status: ${STATUS_EMOJIS_INCIDENT[inc.status] || inc.status}\n Auswirkung: ${IMPACT_EMOJIS[inc.impact] || inc.impact}\n🔗 ${inc.url}`);
+        }
+      } else {
+        await channel.send(`✅ **Keine aktiven Incidents**`);
+      }
+      hasChanges = true;
+    }
 
-    await channel.send(`${emoji} **Statusänderung:** ${data.page.name} ist jetzt **${currentStatus.toUpperCase()}**\n🔗 ${data.page.url}`);
-    saveLastStatus(currentStatus);
+    // Maintenances
+    const maints = JSON.stringify(data.activeMaintenances || []);
+    if (lastStatus.maintenances !== maints) {
+      const channel = await client.channels.fetch(CHANNEL_ID);
+      if (data.activeMaintenances?.length) {
+        for (const m of data.activeMaintenances) {
+          await channel.send(`🛠️ **Maintenance:** ${m.name}\n Status: ${MAINTENANCE_STATUS[m.status] || m.status}\n Dauer: ${m.duration} Minuten\n 🔗 ${m.url}`);
+        }
+      } else {
+        await channel.send(`✅ **Keine aktiven Wartungen**`);
+      }
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      saveLastStatus({
+        pageStatus: currentStatus,
+        incidents,
+        maintenances: maints
+      });
+    } else {
+      console.log('ℹ️ Keine Änderungen seit letztem Check.');
+    }
 
   } catch (error) {
     console.error('❌ Fehler beim Prüfen des Status:', error.message);
