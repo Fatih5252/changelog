@@ -26,3 +26,11 @@ Install all the packages with `npm i` or `yarn`
 ## Installation
 1. Clone the files from the `discord-bot` folder
 2. Update all necessary information and settings (e.g., Discord channel ID, tokens, signatures, command IDs, etc.).
+
+---
+## What you can expect after you run the code
+a `last_status.json` file is going to be created and it can look like this:
+```json
+{"pageStatus":"UP","incidents":"[]","maintenances":"[]"}
+```
+this is normal because the bot checks this file if any incidents happen. if yes the bot will send a new message to the channel. if no. itdoes nothing and will send a message to the console.
