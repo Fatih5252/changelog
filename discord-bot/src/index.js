@@ -14,11 +14,10 @@ const client = new Client({
 
 client.commands = new Collection();
 
-// Starte Webhook-Server, wenn Bot bereit ist
 client.once('ready', () => {
   startWebhookServer(client);
   checkStatus();
-  setInterval(checkStatus, 2 * 60 * 1000); // alle 2 Minuten Status checken
+  setInterval(checkStatus, 2 * 60 * 1000);
 });
 
 const functions = fs.readdirSync("./src/functions").filter(file => file.endsWith(".js"));
@@ -34,7 +33,7 @@ const commandFolders = fs.readdirSync("./src/commands");
   client.login(process.env.token);
 })();
 
-const CHANNEL_ID = process.env.STATUS_CHANNEL_ID;
+const CHANNEL_ID = '';
 const LAST_STATUS_FILE = './last_status.json';
 
 function loadLastStatus() {
@@ -64,8 +63,9 @@ async function checkStatus() {
 
     const channel = await client.channels.fetch(CHANNEL_ID);
     let emoji = '✅';
-    if (currentStatus.toLowerCase() === 'down') emoji = '❌';
-    else if (currentStatus.toLowerCase() === 'degraded') emoji = '⚠️';
+    if (currentStatus.toLowerCase() === 'up') emoji = '✅';
+    else if (currentStatus.toLowerCase() === 'hasissues') emoji = '⚠️';
+    else if (currentStatus.toLowerCase() === 'undermaintenance') emoji = '🛠️';
 
     await channel.send(`${emoji} **Statusänderung:** ${data.page.name} ist jetzt **${currentStatus.toUpperCase()}**\n🔗 ${data.page.url}`);
     saveLastStatus(currentStatus);
