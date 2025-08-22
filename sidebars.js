@@ -69,6 +69,10 @@ const sidebars = {
               label: 'V3',
               items: [
                 'Changelog/modmail/V3/information',
+                'Changelog/modmail/V3/18-08-2025',
+                'Changelog/modmail/V3/17-08-2025',
+                'Changelog/modmail/V3/16-08-2025',
+                'Changelog/modmail/V3/14-08-2025',
                 'Changelog/modmail/V3/04-07-2025',
                 'Changelog/modmail/V3/19-06-2025',
                 'Changelog/modmail/V3/15-06-2025',
