@@ -96,7 +96,7 @@ async function checkStatus() {
       const channel = await client.channels.fetch(CHANNEL_ID);
       if (data.activeIncidents?.length) {
         for (const inc of data.activeIncidents) {
-          await channel.send(`🚨 **Incident:** ${inc.name}\n Status: ${STATUS_EMOJIS_INCIDENT[inc.status] || inc.status}\n ID: ${inc.id}\n Auswirkung: ${IMPACT_EMOJIS[inc.impact] || inc.impact}\n Start: ${inc.started}\n Update: ${inc.updatedAt} 🔗 ${inc.url}`);
+          await channel.send(`🚨 **Incident:** ${inc.name}\n Status: ${STATUS_EMOJIS_INCIDENT[inc.status] || inc.status}\n ID: ${inc.id}\n Auswirkung: ${IMPACT_EMOJIS[inc.impact] || inc.impact}\n Start: ${inc.started}\n Update: ${inc.updatedAt}\n 🔗 ${inc.url}`);
         }
       } else {
         await channel.send(`✅ **Keine aktiven Incidents**`);
