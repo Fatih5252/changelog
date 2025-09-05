@@ -96,7 +96,7 @@ async function checkStatus() {
       const channel = await client.channels.fetch(CHANNEL_ID);
       if (data.activeIncidents?.length) {
         for (const inc of data.activeIncidents) {
-          await channel.send(`🚨 **Incident:** ${inc.name}\n Status: ${STATUS_EMOJIS_INCIDENT[inc.status] || inc.status}\n Auswirkung: ${IMPACT_EMOJIS[inc.impact] || inc.impact}\n🔗 ${inc.url}`);
+          await channel.send(`🚨 **Incident:** ${inc.name}\n Status: ${STATUS_EMOJIS_INCIDENT[inc.status] || inc.status}\n ID: ${inc.id}\n Auswirkung: ${IMPACT_EMOJIS[inc.impact] || inc.impact}\n Start: ${inc.started}\n Update: ${inc.updatedAt} 🔗 ${inc.url}`);
         }
       } else {
         await channel.send(`✅ **Keine aktiven Incidents**`);
@@ -110,7 +110,7 @@ async function checkStatus() {
       const channel = await client.channels.fetch(CHANNEL_ID);
       if (data.activeMaintenances?.length) {
         for (const m of data.activeMaintenances) {
-          await channel.send(`🛠️ **Maintenance:** ${m.name}\n Status: ${MAINTENANCE_STATUS[m.status] || m.status}\n Dauer: ${m.duration} Minuten\n 🔗 ${m.url}`);
+          await channel.send(`🛠️ **Maintenance:** ${m.name}\n Status: ${MAINTENANCE_STATUS[m.status] || m.status}\n ID: ${m.id}\n Dauer: ${m.duration} Minuten\n Start: ${m.start}\n Update: ${m.updatedAt}\n 🔗 ${m.url}`);
         }
       } else {
         await channel.send(`✅ **Keine aktiven Wartungen**`);
