@@ -11,20 +11,48 @@ const axios = require('axios');
 
 const STATUS_URL = 'https://status.scootkit.com/v2/components.json';
 
+function mapStatus(status) {
+  switch (status) {
+    case 'OPERATIONAL': return '🟢 Online';
+    case 'PARTIALOUTAGE': return '🟡 Eingeschränkt';
+    case 'DEGRADEDPERFORMANCE': return '🟠 Teilweise Ausfall';
+    case 'MAJOROUTAGE': return '🔴 Offline';
+    case 'UNDERMAINTENANCE': return '⚪ Wird Untersucht'
+    default: return '⚪ Unbekannt';
+  }
+}
+function sortComponents(components) {
+  const priorityNames = [];
+  for (let i = 1; i <= 33; i++) {
+    priorityNames.push(`Bot-Host #${i}`);
+  }
+
+  const priorityGroup = components.filter(c => priorityNames.includes(c.name));
+  const otherGroup = components.filter(c => !priorityNames.includes(c.name));
+
+  priorityGroup.sort((a, b) => {
+    return priorityNames.indexOf(a.name) - priorityNames.indexOf(b.name);
+  });
+
+  return [...priorityGroup, ...otherGroup];
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('server-status')
     .setDescription('Zeigt Scootkit Servers ob die Online oder Offline sind.'),
 
   async execute(interaction) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply();
 
     try {
       const response = await axios.get(STATUS_URL);
-      const components = response.data.components;
-      
+      let components = response.data.components;
+
+      components = sortComponents(components);
+
       const embeds = [];
-      const itemsPerPage = 5;
+      const itemsPerPage = 12;
 
       for (let i = 0; i < components.length; i += itemsPerPage) {
         const currentItems = components.slice(i, i + itemsPerPage);
@@ -36,7 +64,7 @@ module.exports = {
         currentItems.forEach(component => {
           embed.addFields({
             name: component.name,
-            value: `Status: **${component.status}**`,
+            value: `Status: **${mapStatus(component.status)}**`,
             inline: false,
           });
         });
