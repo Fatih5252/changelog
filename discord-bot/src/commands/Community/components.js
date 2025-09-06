@@ -53,7 +53,7 @@ module.exports = {
       components = sortComponents(components);
 
       const embeds = [];
-      const itemsPerPage = 1;
+      const itemsPerPage = 12;
 
       for (let i = 0; i < components.length; i += itemsPerPage) {
         const currentItems = components.slice(i, i + itemsPerPage);
