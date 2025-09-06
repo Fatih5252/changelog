@@ -21,6 +21,7 @@ function mapStatus(status) {
     default: return '⚪ Unbekannt';
   }
 }
+
 function sortComponents(components) {
   const priorityNames = [];
   for (let i = 1; i <= 33; i++) {
@@ -52,14 +53,23 @@ module.exports = {
       components = sortComponents(components);
 
       const embeds = [];
-      const itemsPerPage = 12;
+      const itemsPerPage = 1;
 
       for (let i = 0; i < components.length; i += itemsPerPage) {
         const currentItems = components.slice(i, i + itemsPerPage);
+
+        const problemServers = currentItems.filter(c => c.status !== 'OPERATIONAL');
+        const hasProblem = problemServers.length > 0;
+
         const embed = new EmbedBuilder()
           .setColor('#0099ff')
           .setTitle(`Server Status (Seite ${Math.floor(i / itemsPerPage) + 1})`)
-          .setDescription(`Zeigt Server ${i + 1} bis ${i + currentItems.length} von ${components.length}`);
+          .setDescription(
+            (hasProblem
+              ? `⚠️ **Oh nein, ${problemServers.length} Server könnten Probleme haben!** ⚠️\n\n`
+              : '') +
+            `Zeigt Server ${i + 1} bis ${i + currentItems.length} von ${components.length}`
+          );
 
         currentItems.forEach(component => {
           embed.addFields({
@@ -68,8 +78,10 @@ module.exports = {
             inline: false,
           });
         });
+
         embeds.push(embed);
       }
+
 
       const createButtons = (currentPage) => {
         return new ActionRowBuilder().addComponents(
