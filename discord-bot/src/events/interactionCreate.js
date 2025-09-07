@@ -1,28 +1,35 @@
-const { Interaction } = require("discord.js");
+const { InteractionType } = require("discord.js");
 
 module.exports = {
-    name: 'interactionCreate',
+    name: "interactionCreate",
     async execute(interaction, client) {
-        if (!interaction.isCommand()) return;
+        // autocomplete
+        if (interaction.type === InteractionType.ApplicationCommandAutocomplete) {
+            const command = client.commands.get(interaction.commandName);
+            if (!command || !command.autocomplete) return;
+
+            try {
+                await command.autocomplete(interaction, client);
+            } catch (error) {
+                console.error(error);
+            }
+            return;
+        }
+
+        // Normal commands
+        if (!interaction.isChatInputCommand()) return;
 
         const command = client.commands.get(interaction.commandName);
+        if (!command) return;
 
-        if (!command) return
-        
-        try{
-
-
+        try {
             await command.execute(interaction, client);
         } catch (error) {
-            console.log(error);
+            console.error(error);
             await interaction.reply({
-                content: 'There was an error while executing this command!', 
-                ephemeral: true
+                content: "There was an error while executing this command!",
+                ephemeral: true,
             });
-        } 
-
+        }
     },
-    
-
-
 };
