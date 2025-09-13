@@ -141,8 +141,7 @@ module.exports = {
         .addFields(
             { name: 'Server', value: hostComponent.name, inline: true },
             { name: 'Status', value: `${statusDetails.emoji} ${statusDetails.name}`, inline: true },
-            { name: 'ID', value: `\`${hostComponent.id}\``, inline: false },
-            { name: 'Location', value: info.location, inline: true },
+            { name: 'Location', value: info.location, inline: false },
             { name: 'Firma', value: info.company, inline: true },
             { name: 'Beschreibung', value: hostComponent.description || 'Keine Beschreibung verfügbar.', inline: false },
             { name: 'Gruppe', value: hostComponent.group?.name || 'Keine Gruppe', inline: false }
