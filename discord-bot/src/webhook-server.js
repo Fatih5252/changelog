@@ -3,7 +3,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { EmbedBuilder } = require('discord.js');
 
-const PORT = 5000;
+const PORT = 5152;
 const CHANNEL_ID = '';
 
 function startWebhookServer(bot) {
