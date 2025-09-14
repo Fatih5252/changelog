@@ -2,7 +2,6 @@ const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const startWebhookServer = require('./webhook-server');
-const { startProxy } = require('./download-proxy');
 require('dotenv').config();
 
 const client = new Client({
@@ -17,8 +16,6 @@ client.once('ready', () => {
   console.log(`✅ Eingeloggt als ${client.user.tag}`);
 
   startWebhookServer(client);
-
-  startProxy(5152);
 
   checkStatus();
   setInterval(checkStatus, 2 * 60 * 1000);
