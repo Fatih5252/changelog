@@ -1,11 +1,15 @@
-const {
-  SlashCommandBuilder,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle
+const { 
+  SlashCommandBuilder, 
+  EmbedBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  ActionRowBuilder 
 } = require('discord.js');
 const axios = require('axios');
+
+const API_URL = 'https://scnx.app/api/users';
+const PROXY_IP = '';
+const PROXY_PORT = 5152;
 
 const FLAG_MAP = {
   Staff: '👨‍💼 Discord Staff',
@@ -33,17 +37,15 @@ function formatFlags(flags) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('user-info')
-    .setDescription('Hole Informationen über einen Benutzer von der SCNX API.')
+    .setDescription('Zeigt Informationen über einen Benutzer an.')
     .addUserOption(option =>
-      option
-        .setName('member')
-        .setDescription('Wähle einen User, der auf dem Server ist')
+      option.setName('member')
+        .setDescription('Ein Benutzer, der auf diesem Server ist')
         .setRequired(false)
     )
     .addStringOption(option =>
-      option
-        .setName('user-id')
-        .setDescription('Gib eine User-ID ein (für User außerhalb des Servers)')
+      option.setName('userid')
+        .setDescription('ID eines Benutzers, der nicht auf dem Server ist')
         .setRequired(false)
     ),
 
@@ -52,43 +54,32 @@ module.exports = {
 
     const member = interaction.options.getUser('member');
     const userIdOption = interaction.options.getString('userid');
-    let userId;
 
-    if (member && userIdOption) {
-      if (member.id !== userIdOption) {
-        return interaction.editReply({
-          content: '❌ Sorry, aber die Informationen stimmen nicht überein. Bitte fülle **nur ein Feld** aus!',
-        });
-      } else {
-        userId = member.id;
-      }
-    } else if (member) {
-      userId = member.id;
-    } else if (userIdOption) {
-      userId = userIdOption;
-    } else {
-      return interaction.editReply({
-        content: '❌ Bitte gib entweder einen Server-User oder eine User-ID an!',
-      });
+    if (member && userIdOption && member.id !== userIdOption) {
+      return interaction.editReply('❌ Sorry, aber die Angaben stimmen nicht überein. Bitte nur ein Feld ausfüllen.');
+    }
+
+    const userId = member ? member.id : userIdOption;
+    if (!userId) {
+      return interaction.editReply('❌ Bitte gib entweder ein Server-Mitglied oder eine User-ID an.');
     }
 
     try {
-      const response = await axios.get(`https://scnx.app/api/users/${userId}/profile`);
+      const response = await axios.get(`${API_URL}/${userId}/profile`);
       const data = response.data;
 
       const embed = new EmbedBuilder()
-        .setColor('#0099ff')
+        .setColor('#5865F2')
         .setTitle(`👤 Benutzer-Info für ${data.username} (${data.id})`)
         .setThumbnail(data.avatarURL || null)
-        .setImage(data.bannerURL || null)
         .addFields(
-          { name: 'Tag', value: data.tag || 'N/A', inline: true },
+          { name: 'Tag', value: data.username || 'N/A', inline: true },
           { name: 'Discriminator', value: data.discriminator || 'N/A', inline: true },
           { name: 'Badges', value: formatFlags(data.flags), inline: false },
-          { name: 'Erstellt am', value: data.createdAt ? `<t:${Math.floor(data.createdAt / 1000)}:F>` : 'N/A', inline: false }
-        )
-        .setFooter({ text: 'Benutzerdaten von SCNX' })
-        .setTimestamp();
+          { name: 'Erstellt am', value: new Date(data.createdAt).toLocaleString('de-DE'), inline: false }
+        );
+
+      if (data.bannerURL) embed.setImage(data.bannerURL);
 
       const row = new ActionRowBuilder();
 
@@ -97,7 +88,7 @@ module.exports = {
           new ButtonBuilder()
             .setLabel('🔗 Avatar herunterladen')
             .setStyle(ButtonStyle.Link)
-            .setURL(data.downloadAvatarURL)
+            .setURL(`http://${PROXY_IP}:${PROXY_PORT}/download?url=${encodeURIComponent(data.downloadAvatarURL)}&name=avatar_${data.id}.png`)
         );
       }
 
@@ -106,20 +97,15 @@ module.exports = {
           new ButtonBuilder()
             .setLabel('🎨 Banner herunterladen')
             .setStyle(ButtonStyle.Link)
-            .setURL(data.downloadBannerURL)
+            .setURL(`http://${PROXY_IP}:${PROXY_PORT}/download?url=${encodeURIComponent(data.downloadBannerURL)}&name=banner_${data.id}.png`)
         );
       }
 
-      await interaction.editReply({
-        embeds: [embed],
-        components: row.components.length > 0 ? [row] : [],
-      });
+      await interaction.editReply({ embeds: [embed], components: row.components.length ? [row] : [] });
 
-    } catch (error) {
-      console.error('Fehler beim Abrufen der User-Daten:', error.response?.data || error.message);
-      await interaction.editReply({
-        content: '❌ Konnte die User-Informationen nicht abrufen.',
-      });
+    } catch (err) {
+      console.error(err.message);
+      await interaction.editReply('❌ Fehler beim Abrufen der Benutzerdaten!');
     }
-  },
+  }
 };

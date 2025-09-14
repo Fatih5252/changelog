@@ -2,20 +2,24 @@ const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const startWebhookServer = require('./webhook-server');
+const { startProxy } = require('./download-proxy'); // ✅ Proxy importieren
 require('dotenv').config();
 
 const client = new Client({
   intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    53608447
   ]
 });
 
 client.commands = new Collection();
 
 client.once('ready', () => {
+  console.log(`✅ Eingeloggt als ${client.user.tag}`);
+
   startWebhookServer(client);
+
+  startProxy(5152);
+
   checkStatus();
   setInterval(checkStatus, 2 * 60 * 1000);
 });
