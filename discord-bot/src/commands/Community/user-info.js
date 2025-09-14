@@ -43,8 +43,7 @@ module.exports = {
 
     if (member && id && member.id !== id) {
       return interaction.reply({
-        content: '❌ Bitte gib nur EINE Option an entweder User auswählen ODER ID eingeben.',
-        ephemeral: true
+        content: '❌ Bitte gib nur EINE Option an – entweder User auswählen ODER ID eingeben.',
       });
     }
 
@@ -56,13 +55,11 @@ module.exports = {
       } else {
         return interaction.reply({
           content: '❌ Du musst entweder einen User auswählen oder eine ID angeben.',
-          ephemeral: true
         });
       }
     } catch {
       return interaction.reply({
         content: '❌ Konnte User nicht finden. Überprüfe die ID.',
-        ephemeral: true
       });
     }
 
@@ -90,12 +87,17 @@ module.exports = {
       new ButtonBuilder()
         .setLabel('📥 Avatar herunterladen')
         .setStyle(ButtonStyle.Link)
-        .setURL(avatarURL),
-      new ButtonBuilder()
-        .setLabel('📥 Banner herunterladen')
-        .setStyle(ButtonStyle.Link)
-        .setURL(bannerURL || avatarURL)
+        .setURL(avatarURL)
     );
+
+    if (bannerURL) {
+      row.addComponents(
+        new ButtonBuilder()
+          .setLabel('📥 Banner herunterladen')
+          .setStyle(ButtonStyle.Link)
+          .setURL(bannerURL)
+      );
+    }
 
     await interaction.reply({ embeds: [embed], components: [row] });
   }
