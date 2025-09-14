@@ -2,7 +2,7 @@ const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const startWebhookServer = require('./webhook-server');
-const { startProxy } = require('./download-proxy'); // ✅ Proxy importieren
+const { startProxy } = require('./download-proxy');
 require('dotenv').config();
 
 const client = new Client({
