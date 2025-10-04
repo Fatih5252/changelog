@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const startWebhookServer = require('./webhook-server');
@@ -68,6 +68,14 @@ const MAINTENANCE_STATUS = {
   COMPLETED: '✅ Abgeschlossen'
 };
 
+function toDiscordTimestamp(dateString, style = 'f') {
+  if (!dateString) return 'Unbekannt';
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return 'Unbekannt';
+  const ts = Math.floor(d.getTime() / 1000);
+  return `<t:${ts}:${style}>`;
+}
+
 async function checkStatus() {
   try {
     const response = await axios.get('https://status.scootkit.com/summary.json');
@@ -83,11 +91,18 @@ async function checkStatus() {
       const channel = await client.channels.fetch(CHANNEL_ID);
 
       let emoji = '✅';
-      if (currentStatus.toLowerCase() === 'up') emoji = '✅';
-      else if (currentStatus.toLowerCase() === 'hasissues') emoji = '⚠️';
-      else if (currentStatus.toLowerCase() === 'undermaintenance') emoji = '🛠️';
+      let color = '#00FF00';
+      if (currentStatus.toLowerCase() === 'up') { emoji = '✅'; color = '#00FF00'; }
+      else if (currentStatus.toLowerCase() === 'hasissues') { emoji = '⚠️'; color = '#FFFF00'; }
+      else if (currentStatus.toLowerCase() === 'undermaintenance') { emoji = '🛠️'; color = '#FFA500'; }
 
-      await channel.send(`${emoji} **Statusänderung:** ${data.page.name} ist jetzt **${currentStatus.toUpperCase()}**\n🔗 ${data.page.url}`);
+      const embed = new EmbedBuilder()
+        .setTitle(`${emoji} Statusänderung`)
+        .setDescription(`${data.page.name} ist jetzt **${currentStatus.toUpperCase()}**\n🔗 [Zur Statusseite](${data.page.url})`)
+        .setColor(color)
+        .setTimestamp();
+
+      await channel.send({ embeds: [embed] });
       hasChanges = true;
     }
 
@@ -97,10 +112,31 @@ async function checkStatus() {
       const channel = await client.channels.fetch(CHANNEL_ID);
       if (data.activeIncidents?.length) {
         for (const inc of data.activeIncidents) {
-          await channel.send(`🚨 **Incident:** ${inc.name}\n Status: ${STATUS_EMOJIS_INCIDENT[inc.status] || inc.status}\n ID: ${inc.id}\n Auswirkung: ${IMPACT_EMOJIS[inc.impact] || inc.impact}\n Start: ${inc.started}\n Update: ${inc.updatedAt}\n 🔗 ${inc.url}`);
+          const embed = new EmbedBuilder()
+            .setTitle(`🚨 Incident: ${inc.name}`)
+            .setDescription(`🔗 [Mehr Details](${inc.url})`)
+            .addFields(
+              { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status] || inc.status || 'Unbekannt', inline: true },
+              { name: "Auswirkung", value: IMPACT_EMOJIS[inc.impact] || inc.impact || 'Unbekannt', inline: true },
+              { name: "ID", value: inc.id || '—', inline: false },
+              { name: "Start", value: toDiscordTimestamp(inc.started, 'f'), inline: false },
+              { name: "Update", value: toDiscordTimestamp(inc.updatedAt, 'R'), inline: false },
+            )
+            .setColor('#FF0000');
+
+          if (inc.updatedAt && !Number.isNaN(new Date(inc.updatedAt).getTime())) {
+            embed.setTimestamp(new Date(inc.updatedAt));
+          }
+
+          await channel.send({ embeds: [embed] });
         }
       } else {
-        await channel.send(`✅ **Keine aktiven Incidents**`);
+        const embed = new EmbedBuilder()
+          .setTitle("✅ Keine aktiven Incidents")
+          .setColor('#00FF00')
+          .setTimestamp();
+
+        await channel.send({ embeds: [embed] });
       }
       hasChanges = true;
     }
@@ -111,10 +147,31 @@ async function checkStatus() {
       const channel = await client.channels.fetch(CHANNEL_ID);
       if (data.activeMaintenances?.length) {
         for (const m of data.activeMaintenances) {
-          await channel.send(`🛠️ **Maintenance:** ${m.name}\n Status: ${MAINTENANCE_STATUS[m.status] || m.status}\n ID: ${m.id}\n Dauer: ${m.duration} Minuten\n Start: ${m.start}\n Update: ${m.updatedAt}\n 🔗 ${m.url}`);
+          const embed = new EmbedBuilder()
+            .setTitle(`🛠️ Maintenance: ${m.name}`)
+            .setDescription(`🔗 [Mehr Details](${m.url})`)
+            .addFields(
+              { name: "Status", value: MAINTENANCE_STATUS[m.status] || m.status || 'Unbekannt', inline: true },
+              { name: "ID", value: m.id || '—', inline: false },
+              { name: "Dauer", value: `${m.duration ?? '—'} Minuten`, inline: true },
+              { name: "Start", value: toDiscordTimestamp(m.start, 'f'), inline: false },
+              { name: "Update", value: toDiscordTimestamp(m.updatedAt, 'R'), inline: false },
+            )
+            .setColor('#FFA500');
+
+          if (m.updatedAt && !Number.isNaN(new Date(m.updatedAt).getTime())) {
+            embed.setTimestamp(new Date(m.updatedAt));
+          }
+
+          await channel.send({ embeds: [embed] });
         }
       } else {
-        await channel.send(`✅ **Keine aktiven Wartungen**`);
+        const embed = new EmbedBuilder()
+          .setTitle("✅ Keine aktiven Wartungen")
+          .setColor('#00FF00')
+          .setTimestamp();
+
+        await channel.send({ embeds: [embed] });
       }
       hasChanges = true;
     }
