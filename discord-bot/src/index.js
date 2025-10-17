@@ -18,7 +18,7 @@ client.once('ready', () => {
   startWebhookServer(client);
 
   checkStatus();
-  setInterval(checkStatus, 2 * 60 * 1000);
+  setInterval(checkStatus, 1000 * 60 * 5);
 });
 
 const functions = fs.readdirSync("./src/functions").filter(file => file.endsWith(".js"));
@@ -34,7 +34,6 @@ const commandFolders = fs.readdirSync("./src/commands");
   client.login(process.env.token);
 })();
 
-const CHANNEL_ID = '';
 const LAST_STATUS_FILE = './last_status.json';
 
 function loadLastStatus() {
@@ -49,144 +48,142 @@ function saveLastStatus(status) {
 }
 
 const STATUS_EMOJIS_INCIDENT = {
-  INVESTIGATING: '🕵️‍♂️ Untersuche',
-  IDENTIFIED: '📌 Problem identifiziert',
-  MONITORING: '👀 Beobachtung',
-  RESOLVED: '✅ Behoben'
+  INVESTIGATING: { de: '🕵️‍♂️ Untersuche', en: '🕵️‍♂️ Investigating' },
+  IDENTIFIED: { de: '📌 Problem identifiziert', en: '📌 Identified' },
+  MONITORING: { de: '👀 Beobachtung', en: '👀 Monitoring' },
+  RESOLVED: { de: '✅ Behoben', en: '✅ Resolved' }
 };
 
 const IMPACT_EMOJIS = {
-  OPERATIONAL: '✅ Keine Einschränkungen',
-  PARTIALOUTAGE: '⚠️ Teilweise Störung',
-  MINOROUTAGE: '⚠️ Kleinere Störung',
-  MAJOROUTAGE: '🚨 Große Störung'
+  OPERATIONAL: { de: '✅ Keine Einschränkungen', en: '✅ Operational' },
+  PARTIALOUTAGE: { de: '⚠️ Teilweise Störung', en: '⚠️ Partial Outage' },
+  MINOROUTAGE: { de: '⚠️ Kleinere Störung', en: '⚠️ Minor Outage' },
+  MAJOROUTAGE: { de: '🚨 Große Störung', en: '🚨 Major Outage' }
 };
 
 const MAINTENANCE_STATUS = {
-  NOTSTARTEDYET: '⏳ Noch nicht gestartet',
-  INPROGRESS: '🔧 In Bearbeitung',
-  COMPLETED: '✅ Abgeschlossen'
+  NOTSTARTEDYET: { de: '⏳ Noch nicht gestartet', en: '⏳ Not started yet' },
+  INPROGRESS: { de: '🔧 In Bearbeitung', en: '🔧 In Progress' },
+  COMPLETED: { de: '✅ Abgeschlossen', en: '✅ Completed' }
 };
 
-function toDiscordTimestamp(dateString, style = 'f') {
-  if (!dateString) return 'Unbekannt';
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return 'Unbekannt';
-  const ts = Math.floor(d.getTime() / 1000);
-  return `<t:${ts}:${style}>`;
+
+function toDiscordTimestamp(dateString, style = "f") {
+  if (!dateString) return "—";
+  const unix = Math.floor(new Date(dateString).getTime() / 1000);
+  return `<t:${unix}:${style}>`;
 }
 
 async function checkStatus() {
   try {
-    const response = await axios.get('https://status.scootkit.com/summary.json');
-    const data = response.data;
-
-    const currentStatus = data.page?.status;
-    if (!currentStatus) return;
+    const response = await axios.get('https://scnx.app/api/incidents');
+    const incidents = response.data;
 
     const lastStatus = loadLastStatus() || {};
-    let hasChanges = false;
+    const lastIncidents = lastStatus.incidents || "[]";
+    const currentIncidents = JSON.stringify(incidents);
 
-    if (lastStatus.pageStatus !== currentStatus) {
-      const channel = await client.channels.fetch(CHANNEL_ID);
+    const CHANNEL_ID_EN = '';
+    const CHANNEL_ID_DE = '';
 
-      let emoji = '✅';
-      let color = '#00FF00';
-      if (currentStatus.toLowerCase() === 'up') { emoji = '✅'; color = '#00FF00'; }
-      else if (currentStatus.toLowerCase() === 'hasissues') { emoji = '⚠️'; color = '#FFFF00'; }
-      else if (currentStatus.toLowerCase() === 'undermaintenance') { emoji = '🛠️'; color = '#FFA500'; }
+    if (lastIncidents !== currentIncidents) {
 
-      const embed = new EmbedBuilder()
-        .setTitle(`${emoji} Statusänderung`)
-        .setDescription(`${data.page.name} ist jetzt **${currentStatus.toUpperCase()}**\n🔗 [Zur Statusseite](${data.page.url})`)
-        .setColor(color)
-        .setTimestamp();
+      const channelEN = await client.channels.fetch(CHANNEL_ID_EN);
+      const channelDE = await client.channels.fetch(CHANNEL_ID_DE);
 
-      await channel.send({ embeds: [embed] });
-      hasChanges = true;
-    }
+      if (incidents.length > 0) {
+        for (const inc of incidents) {
 
-    // Incidents
-    const incidents = JSON.stringify(data.activeIncidents || []);
-    if (lastStatus.incidents !== incidents) {
-      const channel = await client.channels.fetch(CHANNEL_ID);
-      if (data.activeIncidents?.length) {
-        for (const inc of data.activeIncidents) {
-          const embed = new EmbedBuilder()
-            .setTitle(`🚨 Incident: ${inc.name}`)
-            .setDescription(`🔗 [Mehr Details](${inc.url})`)
+          // --- ENGLISCH VERSION ---
+          const embedEN = new EmbedBuilder()
+            .setTitle(`🚨 Incident: ${inc.name || "Unknown Incident"}`)
+            .setColor(inc.resolved ? "#00FF00" : "#FF0000")
             .addFields(
-              { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status] || inc.status || 'Unbekannt', inline: true },
-              { name: "Auswirkung", value: IMPACT_EMOJIS[inc.impact] || inc.impact || 'Unbekannt', inline: true },
-              { name: "ID", value: inc.id || '—', inline: false },
-              { name: "Start", value: toDiscordTimestamp(inc.started, 'f'), inline: false },
-              { name: "Update", value: toDiscordTimestamp(inc.updatedAt, 'R'), inline: false },
+              { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.en || inc.status || "Unknown", inline: true },
+              { name: "Impact", value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.en || inc.impact || "Unknown", inline: true },
+              { name: "Started", value: toDiscordTimestamp(inc.started, "f"), inline: false }
             )
-            .setColor('#FF0000');
+            .setTimestamp();
 
-          if (inc.updatedAt && !Number.isNaN(new Date(inc.updatedAt).getTime())) {
-            embed.setTimestamp(new Date(inc.updatedAt));
+          if (inc.resolved) {
+            embedEN.addFields({ name: "Resolved", value: toDiscordTimestamp(inc.resolved, "f"), inline: false });
           }
 
-          await channel.send({ embeds: [embed] });
-        }
-      } else {
-        const embed = new EmbedBuilder()
-          .setTitle("✅ Keine aktiven Incidents")
-          .setColor('#00FF00')
-          .setTimestamp();
-
-        await channel.send({ embeds: [embed] });
-      }
-      hasChanges = true;
-    }
-
-    // Maintenances
-    const maints = JSON.stringify(data.activeMaintenances || []);
-    if (lastStatus.maintenances !== maints) {
-      const channel = await client.channels.fetch(CHANNEL_ID);
-      if (data.activeMaintenances?.length) {
-        for (const m of data.activeMaintenances) {
-          const embed = new EmbedBuilder()
-            .setTitle(`🛠️ Maintenance: ${m.name}`)
-            .setDescription(`🔗 [Mehr Details](${m.url})`)
-            .addFields(
-              { name: "Status", value: MAINTENANCE_STATUS[m.status] || m.status || 'Unbekannt', inline: true },
-              { name: "ID", value: m.id || '—', inline: false },
-              { name: "Dauer", value: `${m.duration ?? '—'} Minuten`, inline: true },
-              { name: "Start", value: toDiscordTimestamp(m.start, 'f'), inline: false },
-              { name: "Update", value: toDiscordTimestamp(m.updatedAt, 'R'), inline: false },
-            )
-            .setColor('#FFA500');
-
-          if (m.updatedAt && !Number.isNaN(new Date(m.updatedAt).getTime())) {
-            embed.setTimestamp(new Date(m.updatedAt));
+          if (inc.updates?.length > 0) {
+            const latestUpdate = inc.updates[inc.updates.length - 1];
+            embedEN.addFields(
+              { name: "Last Update", value: toDiscordTimestamp(latestUpdate.createdAt, "R"), inline: false },
+              { name: "Update Status", value: STATUS_EMOJIS_INCIDENT[latestUpdate.status?.toUpperCase()]?.en || latestUpdate.status || "—", inline: true },
+              { name: "Description", value: (latestUpdate.message || "No update message.").slice(0, 1024) }
+            );
+            if (latestUpdate.attachments?.length > 0) {
+              embedEN.setImage(latestUpdate.attachments[0].url);
+            }
           }
 
-          await channel.send({ embeds: [embed] });
+          // --- DEUTSCHE VERSION ---
+          const titleDE = inc.translations?.name?.de || inc.name || "Unbekannter Vorfall";
+          const embedDE = new EmbedBuilder()
+            .setTitle(`🚨 Vorfall: ${titleDE}`)
+            .setColor(inc.resolved ? "#00FF00" : "#FF0000")
+            .addFields(
+              { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.de || inc.status || "Unbekannt", inline: true },
+              { name: "Auswirkung", value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.de || inc.impact || "Unbekannt", inline: true },
+              { name: "Gestartet", value: toDiscordTimestamp(inc.started, "f"), inline: false }
+            )
+            .setTimestamp();
+
+          if (inc.resolved) {
+            embedDE.addFields({ name: "Behoben", value: toDiscordTimestamp(inc.resolved, "f"), inline: false });
+          }
+
+          if (inc.updates?.length > 0) {
+            const latestUpdate = inc.updates[inc.updates.length - 1];
+            const updateTextDE = latestUpdate.translations?.message?.de || latestUpdate.message || "Kein Update vorhanden.";
+
+            embedDE.addFields(
+              { name: "Letztes Update", value: toDiscordTimestamp(latestUpdate.createdAt, "R"), inline: false },
+              { name: "Update-Status", value: STATUS_EMOJIS_INCIDENT[latestUpdate.status?.toUpperCase()]?.de || latestUpdate.status || "—", inline: true },
+              { name: "Beschreibung", value: updateTextDE.slice(0, 1024) }
+            );
+            if (latestUpdate.attachments?.length > 0) {
+              embedDE.setImage(latestUpdate.attachments[0].url);
+            }
+          }
+
+          await channelEN.send({ embeds: [embedEN] });
+          await channelDE.send({ embeds: [embedDE] });
+
+          const statusDe = STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.de || inc.status;
+          const statusEn = STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.en || inc.status;
+
+          embedDE.addFields({ name: "Status", value: statusDe });
+          embedEN.addFields({ name: "Status", value: statusEn });
+
         }
+
       } else {
-        const embed = new EmbedBuilder()
-          .setTitle("✅ Keine aktiven Wartungen")
-          .setColor('#00FF00')
+        const embedEN = new EmbedBuilder()
+          .setTitle("✅ No active incidents")
+          .setColor("#00FF00")
           .setTimestamp();
 
-        await channel.send({ embeds: [embed] });
-      }
-      hasChanges = true;
-    }
+        const embedDE = new EmbedBuilder()
+          .setTitle("✅ Keine aktiven Vorfälle")
+          .setColor("#00FF00")
+          .setTimestamp();
 
-    if (hasChanges) {
-      saveLastStatus({
-        pageStatus: currentStatus,
-        incidents,
-        maintenances: maints
-      });
+        await channelEN.send({ embeds: [embedEN] });
+        await channelDE.send({ embeds: [embedDE] });
+      }
+
+      saveLastStatus({ incidents: currentIncidents });
+      console.log("✅ Neue Incident-Daten erkannt und in beiden Channels gesendet.");
     } else {
-      console.log('ℹ️ Keine Änderungen seit letztem Check.');
+      console.log("ℹ️ Keine Änderungen seit letztem Check.");
     }
 
   } catch (error) {
-    console.error('❌ Fehler beim Prüfen des Status:', error.message);
+    console.error("❌ Fehler beim Abrufen der SCNX API:", error.message);
   }
 }
