@@ -98,6 +98,7 @@ async function checkStatus() {
           const embedEN = new EmbedBuilder()
             .setTitle(`🚨 Incident: ${inc.name || "Unknown Incident"}`)
             .setColor(inc.resolved ? "#00FF00" : "#FF0000")
+            .setDescription(`[🔗 More details](https://status.scootkit.com/en/${inc.id})`)
             .addFields(
               { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.en || inc.status || "Unknown", inline: true },
               { name: "Impact", value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.en || inc.impact || "Unknown", inline: true },
@@ -126,6 +127,7 @@ async function checkStatus() {
           const embedDE = new EmbedBuilder()
             .setTitle(`🚨 Vorfall: ${titleDE}`)
             .setColor(inc.resolved ? "#00FF00" : "#FF0000")
+            .setDescription(`[🔗 Mehr erfahren](https://status.scootkit.com/${inc.id})`)
             .addFields(
               { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.de || inc.status || "Unbekannt", inline: true },
               { name: "Auswirkung", value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.de || inc.impact || "Unbekannt", inline: true },
