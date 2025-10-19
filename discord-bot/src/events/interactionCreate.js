@@ -1,4 +1,4 @@
-const { InteractionType } = require("discord.js");
+const { InteractionType, MessageFlags } = require("discord.js");
 
 module.exports = {
     name: "interactionCreate",
@@ -28,7 +28,7 @@ module.exports = {
             console.error(error);
             await interaction.reply({
                 content: "There was an error while executing this command!",
-                ephemeral: true,
+                flags: MessageFlags.Ephemeral,
             });
         }
     },

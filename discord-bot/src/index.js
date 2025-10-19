@@ -127,7 +127,7 @@ async function checkStatus() {
           const embedDE = new EmbedBuilder()
             .setTitle(`🚨 Vorfall: ${titleDE}`)
             .setColor(inc.resolved ? "#00FF00" : "#FF0000")
-            .setDescription(`[🔗 Mehr erfahren](https://status.scootkit.com/${inc.id})`)
+            .setDescription(`[🔗 Mehr erfahren](https://status.scootkit.com/de/${inc.id})`)
             .addFields(
               { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.de || inc.status || "Unbekannt", inline: true },
               { name: "Auswirkung", value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.de || inc.impact || "Unbekannt", inline: true },
