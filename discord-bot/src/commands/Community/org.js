@@ -9,7 +9,7 @@ module.exports = {
       sub
         .setName("info")
         .setDescription("Zeigt Informationen über eine Organisation an.")
-        .addIntegerOption(option =>
+        .addStringOption(option =>
           option
             .setName("id")
             .setDescription("Die ID der Organisation (z. B. 113)")
@@ -20,7 +20,7 @@ module.exports = {
       sub
         .setName("images")
         .setDescription("Zeigt alle Dynamic Images einer Organisation.")
-        .addIntegerOption(option =>
+        .addStringOption(option =>
           option
             .setName("id")
             .setDescription("Die ID der Organisation (z. B. 113)")
@@ -30,7 +30,7 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const id = interaction.options.getInteger("id");
+    const id = interaction.options.getString("id");
     await interaction.deferReply();
 
     if (sub === "info") {
