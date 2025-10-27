@@ -4,23 +4,23 @@ const axios = require("axios");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("organization")
-    .setDescription("Zeigt Informationen und Bilder einer SCNX-Organisation.")
+    .setDescription("Zeigt Informationen oder Dynamic Images einer SCNX-Organisation.")
     .addSubcommand(sub =>
       sub
         .setName("info")
-        .setDescription("Zeigt Informationen über eine Organisation an.")
+        .setDescription("Zeigt Informationen über eine Organisation anhand ihres Slugs.")
         .addStringOption(option =>
           option
-            .setName("id")
-            .setDescription("Die ID der Organisation (z. B. 113)")
+            .setName("slug")
+            .setDescription("Der Slug der Organisation (z. B. scootkit, fatih)")
             .setRequired(true)
         )
     )
     .addSubcommand(sub =>
       sub
         .setName("images")
-        .setDescription("Zeigt alle Dynamic Images einer Organisation.")
-        .addStringOption(option =>
+        .setDescription("Zeigt Dynamic Images einer Organisation anhand der ID.")
+        .addIntegerOption(option =>
           option
             .setName("id")
             .setDescription("Die ID der Organisation (z. B. 113)")
@@ -30,12 +30,12 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const id = interaction.options.getString("id");
     await interaction.deferReply();
 
     if (sub === "info") {
+      const slug = interaction.options.getString("slug");
       try {
-        const { data: org } = await axios.get(`https://scnx.app/api/marketplace/organizations/${id}`);
+        const { data: org } = await axios.get(`https://scnx.app/api/marketplace/organizations/slug/${slug}`);
 
         const embed = new EmbedBuilder()
           .setTitle(`🏢 ${org.displayName || org.name || "Unbekannte Organisation"}`)
@@ -61,20 +61,20 @@ module.exports = {
           embed.addFields({ name: "🌍 Links", value: links, inline: false });
         }
 
-        embed.setFooter({ text: `Mehr erfahren: https://scnx.app/marketplace/organizations/${org.slug || id}` });
+        embed.setFooter({ text: `Mehr erfahren: https://scnx.app/marketplace/organizations/${org.slug || slug}` });
 
         await interaction.editReply({ embeds: [embed] });
-
       } catch (error) {
         console.error("❌ Fehler bei INFO:", error.message);
         await interaction.editReply({
-          content: "❌ Fehler: Ungültige Organisation-ID oder API nicht erreichbar.",
+          content: "❌ Fehler: Ungültiger Slug oder Organisation nicht gefunden.",
           flags: MessageFlags.Ephemeral
         });
       }
     }
 
     if (sub === "images") {
+      const id = interaction.options.getInteger("id");
       try {
         const { data: images } = await axios.get(`https://scnx.app/api/marketplace/organizations/${id}/dynamic-images`);
 
@@ -109,11 +109,12 @@ module.exports = {
           .setDescription(desc)
           .setColor(getColor(images[0].status))
           .setImage(images[0].previewImageURL)
-          .setFooter({ text: `Alle Bilder: https://scnx.app/api/marketplace/organizations/${id}/dynamic-images` })
+          .setFooter({
+            text: `Alle Bilder: https://scnx.app/api/marketplace/organizations/${id}/dynamic-images`,
+          })
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embed] });
-
       } catch (error) {
         console.error("❌ Fehler bei IMAGES:", error.message);
         await interaction.editReply({
