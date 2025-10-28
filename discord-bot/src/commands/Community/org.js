@@ -56,7 +56,11 @@ module.exports = {
 
         if (org.links && org.links.length > 0) {
           const links = org.links
-            .map(l => `🔗 [${l.displayName || "Website"}](${l.url})`)
+            .map(l => {
+              let cleanUrl = l.url.replace(/^https?:\/\//, "");
+              let display = l.displayName ? l.displayName.replace(/^https?:\/\//, "") : cleanUrl;
+              return `🔗 [${display}](${l.url})`;
+            })
             .join("\n");
           embed.addFields({ name: "🌍 Links", value: links, inline: false });
         }
