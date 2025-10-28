@@ -35,7 +35,7 @@ module.exports = {
     if (sub === "info") {
       const slug = interaction.options.getString("slug");
       try {
-        const { data: org } = await axios.get(`https://scnx.app/api/marketplace/organizations/slug/${slug}`);
+        const { data: org } = await axios.get(`https://scnx.app/api/marketplace/organizations/${slug}`);
 
         const embed = new EmbedBuilder()
           .setTitle(`🏢 ${org.displayName || org.name || "Unbekannte Organisation"}`)
