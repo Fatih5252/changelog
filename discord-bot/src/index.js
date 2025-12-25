@@ -91,8 +91,8 @@ async function checkStatus() {
       return;
     }
 
-    const CHANNEL_ID_EN = '1398636426375073885';
-    const CHANNEL_ID_DE = '1428765419514105947';
+    const CHANNEL_ID_EN = '';
+    const CHANNEL_ID_DE = '';
 
     const channelEN = await client.channels.fetch(CHANNEL_ID_EN);
     const channelDE = await client.channels.fetch(CHANNEL_ID_DE);
