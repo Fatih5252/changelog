@@ -1,32 +1,29 @@
-const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
+const { Client, Collection, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 const startWebhookServer = require('./webhook-server');
 require('dotenv').config();
 
 const client = new Client({
-  intents: [
-    53608447
-  ]
+  intents: [53608447]
 });
 
 client.commands = new Collection();
 
 client.once('ready', () => {
   console.log(`✅ Eingeloggt als ${client.user.tag}`);
-
   startWebhookServer(client);
 
   checkStatus();
   setInterval(checkStatus, 1000 * 60 * 5);
 });
 
-const functions = fs.readdirSync("./src/functions").filter(file => file.endsWith(".js"));
-const eventFiles = fs.readdirSync("./src/events").filter(file => file.endsWith(".js"));
+const functions = fs.readdirSync("./src/functions").filter(f => f.endsWith(".js"));
+const eventFiles = fs.readdirSync("./src/events").filter(f => f.endsWith(".js"));
 const commandFolders = fs.readdirSync("./src/commands");
 
 (async () => {
-  for (file of functions) {
+  for (const file of functions) {
     require(`./functions/${file}`)(client);
   }
   client.handleEvents(eventFiles, "./src/events");
@@ -40,16 +37,16 @@ function loadLastStatus() {
   if (fs.existsSync(LAST_STATUS_FILE)) {
     return JSON.parse(fs.readFileSync(LAST_STATUS_FILE, 'utf8'));
   }
-  return null;
+  return {};
 }
 
 function saveLastStatus(status) {
-  fs.writeFileSync(LAST_STATUS_FILE, JSON.stringify(status));
+  fs.writeFileSync(LAST_STATUS_FILE, JSON.stringify(status, null, 2));
 }
 
 const STATUS_EMOJIS_INCIDENT = {
-  INVESTIGATING: { de: '🕵️‍♂️ Untersuche', en: '🕵️‍♂️ Investigating' },
-  IDENTIFIED: { de: '📌 Problem identifiziert', en: '📌 Identified' },
+  INVESTIGATING: { de: '🕵️‍♂️ Untersuchung', en: '🕵️‍♂️ Investigating' },
+  IDENTIFIED: { de: '📌 Identifiziert', en: '📌 Identified' },
   MONITORING: { de: '👀 Beobachtung', en: '👀 Monitoring' },
   RESOLVED: { de: '✅ Behoben', en: '✅ Resolved' }
 };
@@ -67,125 +64,135 @@ const MAINTENANCE_STATUS = {
   COMPLETED: { de: '✅ Abgeschlossen', en: '✅ Completed' }
 };
 
+const MAINTENANCE_IMPACT = {
+  UNDERMAINTENANCE: { de: '🔧 Wartung', en: '🔧 Maintenance' }
+};
 
-function toDiscordTimestamp(dateString, style = "f") {
-  if (!dateString) return "—";
-  const unix = Math.floor(new Date(dateString).getTime() / 1000);
-  return `<t:${unix}:${style}>`;
+function toDiscordTimestamp(date, style = "f") {
+  if (!date) return "—";
+  return `<t:${Math.floor(new Date(date).getTime() / 1000)}:${style}>`;
 }
 
 async function checkStatus() {
   try {
-    const response = await axios.get('https://scnx.app/api/incidents');
-    const incidents = response.data;
+    const res = await axios.get('https://scnx.app/api/incidents');
+    const { incidents = [], maintenances = [] } = res.data;
 
-    const lastStatus = loadLastStatus() || {};
-    const lastIncidents = lastStatus.incidents || "[]";
+    const lastStatus = loadLastStatus();
+
     const currentIncidents = JSON.stringify(incidents);
+    const currentMaintenances = JSON.stringify(maintenances);
 
-    const CHANNEL_ID_EN = '';
-    const CHANNEL_ID_DE = '';
-
-    if (lastIncidents !== currentIncidents) {
-
-      const channelEN = await client.channels.fetch(CHANNEL_ID_EN);
-      const channelDE = await client.channels.fetch(CHANNEL_ID_DE);
-
-      if (incidents.length > 0) {
-        for (const inc of incidents) {
-
-          // --- ENGLISCH VERSION ---
-          const embedEN = new EmbedBuilder()
-            .setTitle(`🚨 Incident: ${inc.name || "Unknown Incident"}`)
-            .setColor(inc.resolved ? "#00FF00" : "#FF0000")
-            .setDescription(`[🔗 More details](https://status.scootkit.com/en/${inc.id})`)
-            .addFields(
-              { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.en || inc.status || "Unknown", inline: true },
-              { name: "Impact", value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.en || inc.impact || "Unknown", inline: true },
-              { name: "Started", value: toDiscordTimestamp(inc.started, "f"), inline: false }
-            )
-            .setTimestamp();
-
-          if (inc.resolved) {
-            embedEN.addFields({ name: "Resolved", value: toDiscordTimestamp(inc.resolved, "f"), inline: false });
-          }
-
-          if (inc.updates?.length > 0) {
-            const latestUpdate = inc.updates[inc.updates.length - 1];
-            embedEN.addFields(
-              { name: "Last Update", value: toDiscordTimestamp(latestUpdate.createdAt, "R"), inline: false },
-              { name: "Update Status", value: STATUS_EMOJIS_INCIDENT[latestUpdate.status?.toUpperCase()]?.en || latestUpdate.status || "—", inline: true },
-              { name: "Description", value: (latestUpdate.message || "No update message.").slice(0, 1024) }
-            );
-            if (latestUpdate.attachments?.length > 0) {
-              embedEN.setImage(latestUpdate.attachments[0].url);
-            }
-          }
-
-          // --- DEUTSCHE VERSION ---
-          const titleDE = inc.translations?.name?.de || inc.name || "Unbekannter Vorfall";
-          const embedDE = new EmbedBuilder()
-            .setTitle(`🚨 Vorfall: ${titleDE}`)
-            .setColor(inc.resolved ? "#00FF00" : "#FF0000")
-            .setDescription(`[🔗 Mehr erfahren](https://status.scootkit.com/de/${inc.id})`)
-            .addFields(
-              { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.de || inc.status || "Unbekannt", inline: true },
-              { name: "Auswirkung", value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.de || inc.impact || "Unbekannt", inline: true },
-              { name: "Gestartet", value: toDiscordTimestamp(inc.started, "f"), inline: false }
-            )
-            .setTimestamp();
-
-          if (inc.resolved) {
-            embedDE.addFields({ name: "Behoben", value: toDiscordTimestamp(inc.resolved, "f"), inline: false });
-          }
-
-          if (inc.updates?.length > 0) {
-            const latestUpdate = inc.updates[inc.updates.length - 1];
-            const updateTextDE = latestUpdate.translations?.message?.de || latestUpdate.message || "Kein Update vorhanden.";
-
-            embedDE.addFields(
-              { name: "Letztes Update", value: toDiscordTimestamp(latestUpdate.createdAt, "R"), inline: false },
-              { name: "Update-Status", value: STATUS_EMOJIS_INCIDENT[latestUpdate.status?.toUpperCase()]?.de || latestUpdate.status || "—", inline: true },
-              { name: "Beschreibung", value: updateTextDE.slice(0, 1024) }
-            );
-            if (latestUpdate.attachments?.length > 0) {
-              embedDE.setImage(latestUpdate.attachments[0].url);
-            }
-          }
-
-          await channelEN.send({ embeds: [embedEN] });
-          await channelDE.send({ embeds: [embedDE] });
-
-          const statusDe = STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.de || inc.status;
-          const statusEn = STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.en || inc.status;
-
-          embedDE.addFields({ name: "Status", value: statusDe });
-          embedEN.addFields({ name: "Status", value: statusEn });
-
-        }
-
-      } else {
-        const embedEN = new EmbedBuilder()
-          .setTitle("✅ No active incidents")
-          .setColor("#00FF00")
-          .setTimestamp();
-
-        const embedDE = new EmbedBuilder()
-          .setTitle("✅ Keine aktiven Vorfälle")
-          .setColor("#00FF00")
-          .setTimestamp();
-
-        await channelEN.send({ embeds: [embedEN] });
-        await channelDE.send({ embeds: [embedDE] });
-      }
-
-      saveLastStatus({ incidents: currentIncidents });
-      console.log("✅ Neue Incident-Daten erkannt und in beiden Channels gesendet.");
-    } else {
-      console.log("ℹ️ Keine Änderungen seit letztem Check.");
+    if (
+      lastStatus.incidents === currentIncidents &&
+      lastStatus.maintenances === currentMaintenances
+    ) {
+      console.log("ℹ️ Keine Änderungen.");
+      return;
     }
 
-  } catch (error) {
-    console.error("❌ Fehler beim Abrufen der SCNX API:", error.message);
+    const CHANNEL_ID_EN = '1398636426375073885';
+    const CHANNEL_ID_DE = '1428765419514105947';
+
+    const channelEN = await client.channels.fetch(CHANNEL_ID_EN);
+    const channelDE = await client.channels.fetch(CHANNEL_ID_DE);
+
+    for (const inc of incidents) {
+      const latest = inc.updates?.[inc.updates.length - 1];
+
+      const embedEN = new EmbedBuilder()
+        .setTitle(`🚨 Incident: ${inc.name}`)
+        .setColor(inc.resolved ? "#00FF00" : "#FF0000")
+        .setDescription(`[🔗 Details](https://status.scootkit.com/en/${inc.id})`)
+        .addFields(
+          { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status]?.en || inc.status, inline: true },
+          { name: "Impact", value: IMPACT_EMOJIS[inc.impact]?.en || inc.impact, inline: true },
+          { name: "Started", value: toDiscordTimestamp(inc.started), inline: false }
+        )
+        .setTimestamp();
+
+      if (latest) {
+        embedEN.addFields({
+          name: "Last Update",
+          value: latest.translations?.message?.en || latest.message
+        });
+      }
+
+      const embedDE = new EmbedBuilder()
+        .setTitle(`🚨 Vorfall: ${inc.translations?.name?.de || inc.name}`)
+        .setColor(inc.resolved ? "#00FF00" : "#FF0000")
+        .setDescription(`[🔗 Details](https://status.scootkit.com/de/${inc.id})`)
+        .addFields(
+          { name: "Status", value: STATUS_EMOJIS_INCIDENT[inc.status]?.de || inc.status, inline: true },
+          { name: "Auswirkung", value: IMPACT_EMOJIS[inc.impact]?.de || inc.impact, inline: true },
+          { name: "Start", value: toDiscordTimestamp(inc.started), inline: false }
+        )
+        .setTimestamp();
+
+      if (latest) {
+        embedDE.addFields({
+          name: "Letztes Update",
+          value: latest.translations?.message?.de || latest.message
+        });
+      }
+
+      await channelEN.send({ embeds: [embedEN] });
+      await channelDE.send({ embeds: [embedDE] });
+    }
+
+    for (const m of maintenances) {
+      const latest = m.updates?.[m.updates.length - 1];
+
+      const embedEN = new EmbedBuilder()
+        .setTitle(`🔧 Maintenance: ${m.translations?.name?.en || m.name}`)
+        .setDescription(`[🔗 Details](https://status.scootkit.com/en/${m.id})`)
+        .setColor("#FFA500")
+        .addFields(
+          { name: "Status", value: MAINTENANCE_STATUS[m.status]?.en || m.status, inline: true },
+          { name: "Impact", value: MAINTENANCE_IMPACT[m.impact]?.en || m.impact, inline: true },
+          { name: "Start", value: toDiscordTimestamp(m.start), inline: false },
+          { name: "End", value: toDiscordTimestamp(m.end), inline: false }
+        )
+        .setTimestamp();
+
+      if (latest) {
+        embedEN.addFields({
+          name: "Last Update",
+          value: latest.translations?.message?.en || latest.message
+        });
+      }
+
+      const embedDE = new EmbedBuilder()
+        .setTitle(`🔧 Wartung: ${m.translations?.name?.de || m.name}`)
+        .setDescription(`[🔗 Details](https://status.scootkit.com/de/${m.id})`)
+        .setColor("#FFA500")
+        .addFields(
+          { name: "Status", value: MAINTENANCE_STATUS[m.status]?.de || m.status, inline: true },
+          { name: "Auswirkung", value: MAINTENANCE_IMPACT[m.impact]?.de || m.impact, inline: true },
+          { name: "Start", value: toDiscordTimestamp(m.start), inline: false },
+          { name: "Ende", value: toDiscordTimestamp(m.end), inline: false }
+        )
+        .setTimestamp();
+
+      if (latest) {
+        embedDE.addFields({
+          name: "Letztes Update",
+          value: latest.translations?.message?.de || latest.message
+        });
+      }
+
+      await channelEN.send({ embeds: [embedEN] });
+      await channelDE.send({ embeds: [embedDE] });
+    }
+
+    saveLastStatus({
+      incidents: currentIncidents,
+      maintenances: currentMaintenances
+    });
+
+    console.log("✅ Status aktualisiert.");
+
+  } catch (err) {
+    console.error("❌ API Fehler:", err.message);
   }
 }
