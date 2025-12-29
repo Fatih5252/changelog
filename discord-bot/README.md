@@ -33,4 +33,7 @@ a `last_status.json` file is going to be created and it can look like this:
 ```json
 {"pageStatus":"UP","incidents":"[]","maintenances":"[]"}
 ```
+
+a `status_channels.json` file is going to be created and it contains all server id's and their channel ids where the bot is allowed to send status updates.
+
 this is normal because the bot checks this file if any incidents happen. if yes the bot will send a new message to the channel. if no. itdoes nothing and will send a message to the console.
