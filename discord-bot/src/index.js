@@ -1,8 +1,14 @@
-const { Client, Collection, EmbedBuilder } = require('discord.js');
+const { Client, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 const axios = require('axios');
 require('dotenv').config();
 const startWebhookServer = require('./webhook-server');
+const io = require('@pm2/io');
+
+io.init({
+  transactions: true,
+  http: true
+})
 
 const client = new Client({ intents: [53608447] });
 
@@ -31,6 +37,18 @@ const commandFolders = fs.readdirSync("./src/commands");
 
 const CHANNEL_FILE = './src/status_channels.json';
 const CACHE_FILE = './src/last_status.json';
+const SUBSCRIBERS_FILE = './src/incident_subscribers.json';
+
+function getChannelInfo(entry) {
+  if (!entry) return null;
+  if (typeof entry === 'string') return { id: entry, buttons: true };
+  if (typeof entry === 'object') {
+    const id = entry.id || entry.channel || entry.value;
+    if (!id) return null;
+    return { id, buttons: entry.buttons !== false };
+  }
+  return null;
+}
 
 function load(file, fallback = {}) {
   if (!fs.existsSync(file)) return fallback;
@@ -39,6 +57,14 @@ function load(file, fallback = {}) {
 
 function save(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+
+async function sendSafe(channel, payload, ctx = '') {
+  try {
+    await channel.send(payload);
+  } catch (err) {
+    console.error('❌ Send failed', ctx, channel?.id || 'no-channel-id', '-', err?.message || err);
+  }
 }
 
 function ts(date, style = "f") {
@@ -78,27 +104,82 @@ async function checkStatus() {
     const incidents = res.data.incidents || [];
     const maintenances = res.data.maintenances || [];
 
-    const cache = load(CACHE_FILE);
-    const current = JSON.stringify({ incidents, maintenances });
+    const subscribers = load(SUBSCRIBERS_FILE, {});
+    let subscribersChanged = false;
 
-    if (cache.data === current) {
-      console.log('Keine Änderungen gefunden ✅');
-      return; // keine Änderungen
-    }
+    const cache = load(CACHE_FILE, { data: null, sent: {}, maintHistory: {} });
+    const sent = cache.sent || {};
+    const maintHistory = cache.maintHistory || {};
+    const current = JSON.stringify({ incidents, maintenances });
 
     const channels = load(CHANNEL_FILE);
 
     for (const guildId in channels) {
       const cfg = channels[guildId];
+      if (!sent[guildId]) sent[guildId] = { incidents: [], maintenances: [] };
+      const enCfg = getChannelInfo(cfg?.en);
+      const deCfg = getChannelInfo(cfg?.de);
 
       /* ---------- INCIDENTS ---------- */
       for (const inc of incidents) {
         const latestUpdateDE = inc.updates?.length ? inc.updates[inc.updates.length - 1].translations?.message?.de || inc.updates[inc.updates.length - 1].message : null;
         const latestUpdateEN = inc.updates?.length ? inc.updates[inc.updates.length - 1].translations?.message?.en || inc.updates[inc.updates.length - 1].message : null;
 
-        if (cfg.en) {
-          const ch = await client.channels.fetch(cfg.en).catch(() => null);
+        if (Array.isArray(subscribers[inc.id])) {
+          const normalized = subscribers[inc.id]
+            .map(s => (typeof s === 'string' ? { id: s, lang: 'en' } : s))
+            .filter(s => s && s.id);
+          if (normalized.length !== subscribers[inc.id].length) {
+            subscribers[inc.id] = normalized;
+            subscribersChanged = true;
+          }
+        }
+
+        if (inc.resolved && Array.isArray(subscribers[inc.id]) && subscribers[inc.id].length > 0) {
+          for (const sub of subscribers[inc.id]) {
+            const lang = sub.lang === 'de' ? 'de' : 'en';
+            const dmText = lang === 'de'
+              ? `✅ Der Vorfall "${inc.translations?.name?.de || inc.name}" wurde behoben. Details: https://status.scootkit.com/de/${inc.id}`
+              : `✅ Incident "${inc.name}" is resolved. Details: https://status.scootkit.com/en/${inc.id}`;
+            try {
+              const user = await client.users.fetch(sub.id).catch(() => null);
+              if (user) {
+                await user.send(dmText);
+              }
+            } catch (dmErr) {
+              console.error('❌ Failed to DM subscriber:', dmErr.message);
+            }
+          }
+          delete subscribers[inc.id];
+          subscribersChanged = true;
+        }
+
+        const actionRowEN = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`incident_subscribe_request:en:${inc.id}`)
+            .setLabel('🔔 Notify me')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`incident_unsubscribe:en:${inc.id}`)
+            .setLabel('🚫 Unsubscribe')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        const actionRowDE = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`incident_subscribe_request:de:${inc.id}`)
+            .setLabel('🔔 Für Updates anmelden')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`incident_unsubscribe:de:${inc.id}`)
+            .setLabel('🚫 Abmelden')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        if (enCfg?.id) {
+          const ch = await client.channels.fetch(enCfg.id).catch(() => null);
           if (ch) {
+            const componentsEN = inc.resolved || !enCfg.buttons ? [] : [actionRowEN];
             const embedEN = new EmbedBuilder()
               .setTitle(`🚨 Incident: ${inc.name}`)
               .setDescription(`[🔗 Details](https://status.scootkit.com/en/${inc.id})`)
@@ -111,13 +192,19 @@ async function checkStatus() {
               )
               .setTimestamp();
             if (inc.resolved) embedEN.addFields({ name: "Resolved", value: ts(inc.resolved), inline: false });
-            await ch.send({ embeds: [embedEN] });
+            const sendKeyEN = `${enCfg.id}:${inc.id}`;
+            const alreadySent = sent[guildId].incidents.includes(sendKeyEN);
+            if (!alreadySent) {
+              await sendSafe(ch, { embeds: [embedEN], components: componentsEN }, `incident EN guild=${guildId} incident=${inc.id} comps=${componentsEN.length}`);
+              sent[guildId].incidents.push(sendKeyEN);
+            }
           }
         }
 
-        if (cfg.de) {
-          const ch = await client.channels.fetch(cfg.de).catch(() => null);
+        if (deCfg?.id) {
+          const ch = await client.channels.fetch(deCfg.id).catch(() => null);
           if (ch) {
+            const componentsDE = inc.resolved || !deCfg.buttons ? [] : [actionRowDE];
             const embedDE = new EmbedBuilder()
               .setTitle(`🚨 Vorfall: ${inc.translations?.name?.de || inc.name}`)
               .setDescription(`[🔗 Details](https://status.scootkit.com/de/${inc.id})`)
@@ -130,7 +217,12 @@ async function checkStatus() {
               )
               .setTimestamp();
             if (inc.resolved) embedDE.addFields({ name: "Behoben", value: ts(inc.resolved), inline: false });
-            await ch.send({ embeds: [embedDE] });
+            const sendKeyDE = `${deCfg.id}:${inc.id}`;
+            const alreadySent = sent[guildId].incidents.includes(sendKeyDE);
+            if (!alreadySent) {
+              await sendSafe(ch, { embeds: [embedDE], components: componentsDE }, `incident DE guild=${guildId} incident=${inc.id} comps=${componentsDE.length}`);
+              sent[guildId].incidents.push(sendKeyDE);
+            }
           }
         }
       }
@@ -140,9 +232,63 @@ async function checkStatus() {
         const latestUpdateDE = m.updates?.length ? m.updates[m.updates.length - 1].translations?.message?.de || m.updates[m.updates.length - 1].message : null;
         const latestUpdateEN = m.updates?.length ? m.updates[m.updates.length - 1].translations?.message?.en || m.updates[m.updates.length - 1].message : null;
 
-        if (cfg.en) {
-          const ch = await client.channels.fetch(cfg.en).catch(() => null);
+        const maintKey = `maint:${m.id}`;
+        const statusUpper = (m.status || '').toUpperCase();
+        const isDone = statusUpper === 'COMPLETED' || statusUpper === 'COMPLETE' || statusUpper === 'COMPLETED';
+
+        if (Array.isArray(subscribers[maintKey])) {
+          const normalized = subscribers[maintKey]
+            .map(s => (typeof s === 'string' ? { id: s, lang: 'en' } : s))
+            .filter(s => s && s.id);
+          if (normalized.length !== subscribers[maintKey].length) {
+            subscribers[maintKey] = normalized;
+            subscribersChanged = true;
+          }
+        }
+
+        if (isDone && Array.isArray(subscribers[maintKey]) && subscribers[maintKey].length > 0) {
+          for (const sub of subscribers[maintKey]) {
+            const lang = sub.lang === 'de' ? 'de' : 'en';
+            const dmText = lang === 'de'
+              ? `✅ Die Wartung "${m.translations?.name?.de || m.name}" ist abgeschlossen. Details: https://status.scootkit.com/de/${m.id}`
+              : `✅ Maintenance "${m.translations?.name?.en || m.name}" is completed. Details: https://status.scootkit.com/en/${m.id}`;
+            try {
+              const user = await client.users.fetch(sub.id).catch(() => null);
+              if (user) await user.send(dmText);
+            } catch (dmErr) {
+              console.error('❌ Failed to DM maintenance subscriber:', dmErr.message);
+            }
+          }
+          delete subscribers[maintKey];
+          subscribersChanged = true;
+        }
+
+        const maintRowEN = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`maintenance_subscribe_request:en:${m.id}`)
+            .setLabel('🔔 Notify me')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`maintenance_unsubscribe:en:${m.id}`)
+            .setLabel('🚫 Unsubscribe')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        const maintRowDE = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`maintenance_subscribe_request:de:${m.id}`)
+            .setLabel('🔔 Für Updates anmelden')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`maintenance_unsubscribe:de:${m.id}`)
+            .setLabel('🚫 Abmelden')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+        if (enCfg?.id) {
+          const ch = await client.channels.fetch(enCfg.id).catch(() => null);
           if (ch) {
+            const componentsEN = (isDone || !enCfg.buttons) ? [] : [maintRowEN];
             const embedEN = new EmbedBuilder()
               .setTitle(`🔧 Maintenance: ${m.translations?.name?.en || m.name}`)
               .setDescription(`[🔗 Details](https://status.scootkit.com/en/${m.id})`)
@@ -155,13 +301,20 @@ async function checkStatus() {
                 ...(latestUpdateEN ? [{ name: "Update", value: latestUpdateEN, inline: false }] : [])
               )
               .setTimestamp();
-            await ch.send({ embeds: [embedEN] });
+            const maintKeyId = `maint:${m.id}`;
+            const sendKeyEN = `${enCfg.id}:${maintKeyId}`;
+            const alreadySent = sent[guildId].maintenances.includes(sendKeyEN);
+            if (!alreadySent) {
+              await sendSafe(ch, { embeds: [embedEN], components: componentsEN }, `maintenance EN guild=${guildId} maintenance=${m.id} comps=${componentsEN.length}`);
+              sent[guildId].maintenances.push(sendKeyEN);
+            }
           }
         }
 
-        if (cfg.de) {
-          const ch = await client.channels.fetch(cfg.de).catch(() => null);
+        if (deCfg?.id) {
+          const ch = await client.channels.fetch(deCfg.id).catch(() => null);
           if (ch) {
+            const componentsDE = (isDone || !deCfg.buttons) ? [] : [maintRowDE];
             const embedDE = new EmbedBuilder()
               .setTitle(`🔧 Wartung: ${m.translations?.name?.de || m.name}`)
               .setDescription(`[🔗 Details](https://status.scootkit.com/de/${m.id})`)
@@ -174,19 +327,62 @@ async function checkStatus() {
                 ...(latestUpdateDE ? [{ name: "Update", value: latestUpdateDE, inline: false }] : [])
               )
               .setTimestamp();
-            await ch.send({ embeds: [embedDE] });
+            const maintKeyId = `maint:${m.id}`;
+            const sendKeyDE = `${deCfg.id}:${maintKeyId}`;
+            const alreadySent = sent[guildId].maintenances.includes(sendKeyDE);
+            if (!alreadySent) {
+              await sendSafe(ch, { embeds: [embedDE], components: componentsDE }, `maintenance DE guild=${guildId} maintenance=${m.id} comps=${componentsDE.length}`);
+              sent[guildId].maintenances.push(sendKeyDE);
+            }
           }
         }
       }
     }
 
-    save(CACHE_FILE, { data: current });
+    const currentIncidentIds = incidents.map(i => i.id);
+    const currentMaintIds = maintenances.map(m => `maint:${m.id}`);
+    for (const gid in sent) {
+      sent[gid].incidents = sent[gid].incidents.filter(key => {
+        const parts = key.split(':');
+        const incidentId = parts[parts.length - 1];
+        return currentIncidentIds.includes(incidentId);
+      });
+      sent[gid].maintenances = sent[gid].maintenances.filter(key => {
+        const parts = key.split(':');
+        const maintId = parts.slice(1).join(':');
+        return currentMaintIds.includes(maintId);
+      });
+    }
+
+    const maintSubscriberKeys = Object.keys(subscribers).filter(k => k.startsWith('maint:'));
+    for (const key of maintSubscriberKeys) {
+      if (currentMaintIds.includes(key)) continue; // still active
+      if (!Array.isArray(subscribers[key]) || subscribers[key].length === 0) continue;
+      const cachedMaint = maintHistory[key];
+      for (const sub of subscribers[key]) {
+        const lang = sub.lang === 'de' ? 'de' : 'en';
+        const nameDe = cachedMaint?.translations?.name?.de || cachedMaint?.name || 'Wartung';
+        const nameEn = cachedMaint?.translations?.name?.en || cachedMaint?.name || 'Maintenance';
+        const dmText = lang === 'de'
+          ? `✅ Die Wartung "${nameDe}" ist abgeschlossen.`
+          : `✅ Maintenance "${nameEn}" is completed.`;
+        try {
+          const user = await client.users.fetch(sub.id).catch(() => null);
+          if (user) await user.send(dmText);
+        } catch (dmErr) {
+          console.error('❌ Failed to DM maintenance subscriber (disappeared):', dmErr.message);
+        }
+      }
+      delete subscribers[key];
+      delete maintHistory[key];
+      subscribersChanged = true;
+    }
+
+    save(CACHE_FILE, { data: current, sent, maintHistory });
+    if (subscribersChanged) save(SUBSCRIBERS_FILE, subscribers);
     console.log('✅ Status updated');
 
   } catch (err) {
     console.error('❌ API Error:', err.message);
   }
 }
-
-
-client.login(process.env.token);
