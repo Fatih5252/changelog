@@ -68,9 +68,34 @@ function save(file, data) {
 
 async function sendSafe(channel, payload, ctx = '') {
   try {
-    await channel.send(payload);
+    const msg = await channel.send(payload);
+    return msg;
   } catch (err) {
     console.error('❌ Send failed', ctx, channel?.id || 'no-channel-id', '-', err?.message || err);
+  }
+}
+
+async function sendUserEmbed(user, embed, ctx = '') {
+  try {
+    await user.send({ embeds: [embed] });
+  } catch (err) {
+    console.error('❌ Failed to DM', ctx, user?.id || 'no-user-id', '-', err?.message || err);
+  }
+}
+
+async function clearComponents(channelId, messageId, ctx = '') {
+  if (!channelId || !messageId) return;
+  try {
+    const ch = await client.channels.fetch(channelId).catch(() => null);
+    if (!ch) return;
+    const msg = await ch.messages.fetch(messageId).catch(() => null);
+    if (!msg) return;
+    if (msg.components?.length) {
+      await msg.edit({ components: [] });
+      console.log('ℹ️ Cleared components', ctx, channelId, messageId);
+    }
+  } catch (err) {
+    console.error('❌ Failed to clear components', ctx, channelId, messageId, err?.message || err);
   }
 }
 
@@ -196,16 +221,20 @@ async function checkStatus() {
     const subscribers = load(SUBSCRIBERS_FILE, {});
     let subscribersChanged = false;
 
-    const cache = load(CACHE_FILE, { data: null, sent: {}, maintHistory: {} });
+    const cache = load(CACHE_FILE, { data: null, sent: {}, maintHistory: {}, messageRefs: {} });
     const sent = cache.sent || {};
     const maintHistory = cache.maintHistory || {};
+    const messageRefs = cache.messageRefs || {};
     const current = JSON.stringify({ incidents, maintenances });
 
     const channels = load(CHANNEL_FILE);
 
     for (const guildId in channels) {
       const cfg = channels[guildId];
-      if (!sent[guildId]) sent[guildId] = { incidents: [], maintenances: [] };
+      if (!sent[guildId]) sent[guildId] = { incidents: [], maintenances: [], incidentsResolved: [], maintenancesResolved: [] };
+      if (!Array.isArray(sent[guildId].incidentsResolved)) sent[guildId].incidentsResolved = [];
+      if (!Array.isArray(sent[guildId].maintenancesResolved)) sent[guildId].maintenancesResolved = [];
+      if (!messageRefs[guildId]) messageRefs[guildId] = { incidents: {}, maintenances: {} };
       const enCfg = getChannelInfo(cfg?.en);
       const deCfg = getChannelInfo(cfg?.de);
 
@@ -229,16 +258,23 @@ async function checkStatus() {
         if (inc.resolved && Array.isArray(subscribers[inc.id]) && subscribers[inc.id].length > 0) {
           for (const sub of subscribers[inc.id]) {
             const lang = sub.lang === 'de' ? 'de' : 'en';
-            const dmText = lang === 'de'
-              ? `✅ Der Vorfall "${inc.translations?.name?.de || inc.name}" wurde behoben. Details: https://status.scootkit.com/de/${inc.id}`
-              : `✅ Incident "${inc.name}" is resolved. Details: https://status.scootkit.com/en/${inc.id}`;
-            try {
-              const user = await client.users.fetch(sub.id).catch(() => null);
-              if (user) {
-                await user.send(dmText);
-              }
-            } catch (dmErr) {
-              console.error('❌ Failed to DM subscriber:', dmErr.message);
+            const user = await client.users.fetch(sub.id).catch(() => null);
+            if (user) {
+              const embed = new EmbedBuilder()
+                .setColor('#00FF00')
+                .setTitle(lang === 'de' ? 'Vorfall behoben' : 'Incident resolved')
+                .setDescription(lang === 'de'
+                  ? `✅ Der Vorfall "${inc.translations?.name?.de || inc.name}" wurde behoben.`
+                  : `✅ Incident "${inc.name}" is resolved.`)
+                .addFields(
+                  { name: lang === 'de' ? 'Status' : 'Status', value: STATUS_EMOJIS_INCIDENT.RESOLVED?.[lang] || (lang === 'de' ? 'Behoben' : 'Resolved'), inline: true },
+                  { name: lang === 'de' ? 'Auswirkung' : 'Impact', value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.[lang] || inc.impact || '—', inline: true },
+                  { name: lang === 'de' ? 'Gestartet' : 'Started', value: ts(inc.started), inline: false },
+                  { name: lang === 'de' ? 'Behoben' : 'Resolved', value: ts(inc.resolved), inline: false },
+                )
+                .setURL(lang === 'de' ? `https://status.scootkit.com/de/${inc.id}` : `https://status.scootkit.com/en/${inc.id}`)
+                .setTimestamp();
+              await sendUserEmbed(user, embed, `incident-resolved ${inc.id}`);
             }
           }
           delete subscribers[inc.id];
@@ -286,8 +322,35 @@ async function checkStatus() {
             const sendKeyEN = `${enCfg.id}:${inc.id}`;
             const alreadySent = sent[guildId].incidents.includes(sendKeyEN);
             if (!alreadySent) {
-              await sendSafe(ch, { embeds: [embedEN], components: componentsEN }, `incident EN guild=${guildId} incident=${inc.id} comps=${componentsEN.length}`);
+              const msg = await sendSafe(ch, { embeds: [embedEN], components: componentsEN }, `incident EN guild=${guildId} incident=${inc.id} comps=${componentsEN.length}`);
               sent[guildId].incidents.push(sendKeyEN);
+              if (msg?.id) messageRefs[guildId].incidents[sendKeyEN] = msg.id;
+            }
+
+            if (inc.resolved) {
+              const resolvedKey = `${enCfg.id}:${inc.id}`;
+              const alreadyResolved = sent[guildId].incidentsResolved.includes(resolvedKey);
+              if (!alreadyResolved) {
+                const resolvedEmbedEN = new EmbedBuilder()
+                  .setTitle(`✅ Incident resolved: ${inc.name}`)
+                  .setDescription(`[🔗 Details](https://status.scootkit.com/en/${inc.id})`)
+                  .setColor('#00FF00')
+                  .addFields(
+                    { name: 'Status', value: STATUS_EMOJIS_INCIDENT.RESOLVED?.en || 'Resolved', inline: true },
+                    { name: 'Impact', value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.en || inc.impact || '—', inline: true },
+                    { name: 'Started', value: ts(inc.started), inline: false },
+                    { name: 'Resolved', value: ts(inc.resolved), inline: false },
+                    ...(latestUpdateEN ? [{ name: 'Last Update', value: latestUpdateEN, inline: false }] : [])
+                  )
+                  .setTimestamp();
+                await sendSafe(ch, { embeds: [resolvedEmbedEN], components: [] }, `incident EN resolved guild=${guildId} incident=${inc.id}`);
+                sent[guildId].incidentsResolved.push(resolvedKey);
+                const msgId = messageRefs[guildId].incidents[sendKeyEN];
+                if (msgId) {
+                  await clearComponents(enCfg.id, msgId, `incident EN clear resolved ${inc.id}`);
+                  delete messageRefs[guildId].incidents[sendKeyEN];
+                }
+              }
             }
           }
         }
@@ -311,8 +374,35 @@ async function checkStatus() {
             const sendKeyDE = `${deCfg.id}:${inc.id}`;
             const alreadySent = sent[guildId].incidents.includes(sendKeyDE);
             if (!alreadySent) {
-              await sendSafe(ch, { embeds: [embedDE], components: componentsDE }, `incident DE guild=${guildId} incident=${inc.id} comps=${componentsDE.length}`);
+              const msg = await sendSafe(ch, { embeds: [embedDE], components: componentsDE }, `incident DE guild=${guildId} incident=${inc.id} comps=${componentsDE.length}`);
               sent[guildId].incidents.push(sendKeyDE);
+              if (msg?.id) messageRefs[guildId].incidents[sendKeyDE] = msg.id;
+            }
+
+            if (inc.resolved) {
+              const resolvedKey = `${deCfg.id}:${inc.id}`;
+              const alreadyResolved = sent[guildId].incidentsResolved.includes(resolvedKey);
+              if (!alreadyResolved) {
+                const resolvedEmbedDE = new EmbedBuilder()
+                  .setTitle(`✅ Vorfall behoben: ${inc.translations?.name?.de || inc.name}`)
+                  .setDescription(`[🔗 Details](https://status.scootkit.com/de/${inc.id})`)
+                  .setColor('#00FF00')
+                  .addFields(
+                    { name: 'Status', value: STATUS_EMOJIS_INCIDENT.RESOLVED?.de || 'Behoben', inline: true },
+                    { name: 'Auswirkung', value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.de || inc.impact || '—', inline: true },
+                    { name: 'Gestartet', value: ts(inc.started), inline: false },
+                    { name: 'Behoben', value: ts(inc.resolved), inline: false },
+                    ...(latestUpdateDE ? [{ name: 'Letztes Update', value: latestUpdateDE, inline: false }] : [])
+                  )
+                  .setTimestamp();
+                await sendSafe(ch, { embeds: [resolvedEmbedDE], components: [] }, `incident DE resolved guild=${guildId} incident=${inc.id}`);
+                sent[guildId].incidentsResolved.push(resolvedKey);
+                const msgId = messageRefs[guildId].incidents[sendKeyDE];
+                if (msgId) {
+                  await clearComponents(deCfg.id, msgId, `incident DE clear resolved ${inc.id}`);
+                  delete messageRefs[guildId].incidents[sendKeyDE];
+                }
+              }
             }
           }
         }
@@ -345,14 +435,23 @@ async function checkStatus() {
         if (isDone && Array.isArray(subscribers[maintKey]) && subscribers[maintKey].length > 0) {
           for (const sub of subscribers[maintKey]) {
             const lang = sub.lang === 'de' ? 'de' : 'en';
-            const dmText = lang === 'de'
-              ? `✅ Die Wartung "${m.translations?.name?.de || m.name}" ist abgeschlossen. Details: https://status.scootkit.com/de/${m.id}`
-              : `✅ Maintenance "${m.translations?.name?.en || m.name}" is completed. Details: https://status.scootkit.com/en/${m.id}`;
-            try {
-              const user = await client.users.fetch(sub.id).catch(() => null);
-              if (user) await user.send(dmText);
-            } catch (dmErr) {
-              console.error('❌ Failed to DM maintenance subscriber:', dmErr.message);
+            const user = await client.users.fetch(sub.id).catch(() => null);
+            if (user) {
+              const embed = new EmbedBuilder()
+                .setColor('#00FF00')
+                .setTitle(lang === 'de' ? 'Wartung abgeschlossen' : 'Maintenance completed')
+                .setDescription(lang === 'de'
+                  ? `✅ Die Wartung "${m.translations?.name?.de || m.name}" ist abgeschlossen.`
+                  : `✅ Maintenance "${m.translations?.name?.en || m.name}" is completed.`)
+                .addFields(
+                  { name: lang === 'de' ? 'Status' : 'Status', value: MAINTENANCE_STATUS.COMPLETED?.[lang] || (lang === 'de' ? 'Abgeschlossen' : 'Completed'), inline: true },
+                  { name: lang === 'de' ? 'Auswirkung' : 'Impact', value: MAINTENANCE_IMPACT[m.impact?.toUpperCase()]?.[lang] || m.impact || '—', inline: true },
+                  { name: lang === 'de' ? 'Start' : 'Start', value: ts(m.start), inline: false },
+                  { name: lang === 'de' ? 'Ende' : 'End', value: ts(m.end), inline: false }
+                )
+                .setURL(lang === 'de' ? `https://status.scootkit.com/de/${m.id}` : `https://status.scootkit.com/en/${m.id}`)
+                .setTimestamp();
+              await sendUserEmbed(user, embed, `maintenance-completed ${m.id}`);
             }
           }
           delete subscribers[maintKey];
@@ -401,8 +500,35 @@ async function checkStatus() {
             const sendKeyEN = `${enCfg.id}:${maintKeyId}`;
             const alreadySent = sent[guildId].maintenances.includes(sendKeyEN);
             if (!alreadySent) {
-              await sendSafe(ch, { embeds: [embedEN], components: componentsEN }, `maintenance EN guild=${guildId} maintenance=${m.id} comps=${componentsEN.length}`);
+              const msg = await sendSafe(ch, { embeds: [embedEN], components: componentsEN }, `maintenance EN guild=${guildId} maintenance=${m.id} comps=${componentsEN.length}`);
               sent[guildId].maintenances.push(sendKeyEN);
+              if (msg?.id) messageRefs[guildId].maintenances[sendKeyEN] = msg.id;
+            }
+
+            if (isDone) {
+              const resolvedKey = `${enCfg.id}:${maintKeyId}`;
+              const alreadyResolved = sent[guildId].maintenancesResolved.includes(resolvedKey);
+              if (!alreadyResolved) {
+                const resolvedEmbedEN = new EmbedBuilder()
+                  .setTitle(`✅ Maintenance completed: ${m.translations?.name?.en || m.name}`)
+                  .setDescription(`[🔗 Details](https://status.scootkit.com/en/${m.id})`)
+                  .setColor('#00FF00')
+                  .addFields(
+                    { name: 'Status', value: MAINTENANCE_STATUS.COMPLETED?.en || 'Completed', inline: true },
+                    { name: 'Impact', value: MAINTENANCE_IMPACT[m.impact?.toUpperCase()]?.en || m.impact || '—', inline: true },
+                    { name: 'Start', value: ts(m.start), inline: false },
+                    { name: 'End', value: ts(m.end), inline: false },
+                    ...(latestUpdateEN ? [{ name: 'Last Update', value: latestUpdateEN, inline: false }] : [])
+                  )
+                  .setTimestamp();
+                await sendSafe(ch, { embeds: [resolvedEmbedEN], components: [] }, `maintenance EN completed guild=${guildId} maintenance=${m.id}`);
+                sent[guildId].maintenancesResolved.push(resolvedKey);
+                const msgId = messageRefs[guildId].maintenances[sendKeyEN];
+                if (msgId) {
+                  await clearComponents(enCfg.id, msgId, `maintenance EN clear completed ${m.id}`);
+                  delete messageRefs[guildId].maintenances[sendKeyEN];
+                }
+              }
             }
           }
         }
@@ -427,8 +553,35 @@ async function checkStatus() {
             const sendKeyDE = `${deCfg.id}:${maintKeyId}`;
             const alreadySent = sent[guildId].maintenances.includes(sendKeyDE);
             if (!alreadySent) {
-              await sendSafe(ch, { embeds: [embedDE], components: componentsDE }, `maintenance DE guild=${guildId} maintenance=${m.id} comps=${componentsDE.length}`);
+              const msg = await sendSafe(ch, { embeds: [embedDE], components: componentsDE }, `maintenance DE guild=${guildId} maintenance=${m.id} comps=${componentsDE.length}`);
               sent[guildId].maintenances.push(sendKeyDE);
+              if (msg?.id) messageRefs[guildId].maintenances[sendKeyDE] = msg.id;
+            }
+
+            if (isDone) {
+              const resolvedKey = `${deCfg.id}:${maintKeyId}`;
+              const alreadyResolved = sent[guildId].maintenancesResolved.includes(resolvedKey);
+              if (!alreadyResolved) {
+                const resolvedEmbedDE = new EmbedBuilder()
+                  .setTitle(`✅ Wartung abgeschlossen: ${m.translations?.name?.de || m.name}`)
+                  .setDescription(`[🔗 Details](https://status.scootkit.com/de/${m.id})`)
+                  .setColor('#00FF00')
+                  .addFields(
+                    { name: 'Status', value: MAINTENANCE_STATUS.COMPLETED?.de || 'Abgeschlossen', inline: true },
+                    { name: 'Auswirkung', value: MAINTENANCE_IMPACT[m.impact?.toUpperCase()]?.de || m.impact || '—', inline: true },
+                    { name: 'Start', value: ts(m.start), inline: false },
+                    { name: 'Ende', value: ts(m.end), inline: false },
+                    ...(latestUpdateDE ? [{ name: 'Letztes Update', value: latestUpdateDE, inline: false }] : [])
+                  )
+                  .setTimestamp();
+                await sendSafe(ch, { embeds: [resolvedEmbedDE], components: [] }, `maintenance DE completed guild=${guildId} maintenance=${m.id}`);
+                sent[guildId].maintenancesResolved.push(resolvedKey);
+                const msgId = messageRefs[guildId].maintenances[sendKeyDE];
+                if (msgId) {
+                  await clearComponents(deCfg.id, msgId, `maintenance DE clear completed ${m.id}`);
+                  delete messageRefs[guildId].maintenances[sendKeyDE];
+                }
+              }
             }
           }
         }
@@ -449,6 +602,33 @@ async function checkStatus() {
         const maintId = parts.slice(1).join(':');
         return currentMaintIds.includes(maintId);
       });
+      sent[gid].incidentsResolved = sent[gid].incidentsResolved.filter(key => {
+        const parts = key.split(':');
+        const incidentId = parts[parts.length - 1];
+        return currentIncidentIds.includes(incidentId) || true; // keep resolved entries to avoid re-sending once resolved
+      });
+      sent[gid].maintenancesResolved = sent[gid].maintenancesResolved.filter(key => {
+        const parts = key.split(':');
+        const maintId = parts.slice(1).join(':');
+        return currentMaintIds.includes(maintId) || true;
+      });
+
+      if (messageRefs[gid]) {
+        const filteredInc = {};
+        for (const [k, v] of Object.entries(messageRefs[gid].incidents || {})) {
+          const parts = k.split(':');
+          const incidentId = parts[parts.length - 1];
+          if (currentIncidentIds.includes(incidentId)) filteredInc[k] = v;
+        }
+        const filteredMaint = {};
+        for (const [k, v] of Object.entries(messageRefs[gid].maintenances || {})) {
+          const parts = k.split(':');
+          const maintId = parts.slice(1).join(':');
+          if (currentMaintIds.includes(maintId)) filteredMaint[k] = v;
+        }
+        messageRefs[gid].incidents = filteredInc;
+        messageRefs[gid].maintenances = filteredMaint;
+      }
     }
 
     // Handle maintenances that disappeared from API (treated as completed)
@@ -461,14 +641,19 @@ async function checkStatus() {
         const lang = sub.lang === 'de' ? 'de' : 'en';
         const nameDe = cachedMaint?.translations?.name?.de || cachedMaint?.name || 'Wartung';
         const nameEn = cachedMaint?.translations?.name?.en || cachedMaint?.name || 'Maintenance';
-        const dmText = lang === 'de'
-          ? `✅ Die Wartung "${nameDe}" ist abgeschlossen.`
-          : `✅ Maintenance "${nameEn}" is completed.`;
-        try {
-          const user = await client.users.fetch(sub.id).catch(() => null);
-          if (user) await user.send(dmText);
-        } catch (dmErr) {
-          console.error('❌ Failed to DM maintenance subscriber (disappeared):', dmErr.message);
+        const user = await client.users.fetch(sub.id).catch(() => null);
+        if (user) {
+          const embed = new EmbedBuilder()
+            .setColor('#00FF00')
+            .setTitle(lang === 'de' ? 'Wartung abgeschlossen' : 'Maintenance completed')
+            .setDescription(lang === 'de'
+              ? `✅ Die Wartung "${nameDe}" ist abgeschlossen.`
+              : `✅ Maintenance "${nameEn}" is completed.`)
+            .addFields(
+              { name: lang === 'de' ? 'Status' : 'Status', value: MAINTENANCE_STATUS.COMPLETED?.[lang] || (lang === 'de' ? 'Abgeschlossen' : 'Completed'), inline: true }
+            )
+            .setTimestamp();
+          await sendUserEmbed(user, embed, `maintenance-disappeared ${key}`);
         }
       }
       delete subscribers[key];
@@ -477,7 +662,7 @@ async function checkStatus() {
     }
 
     // Persist cache with history
-    save(CACHE_FILE, { data: current, sent, maintHistory });
+    save(CACHE_FILE, { data: current, sent, maintHistory, messageRefs });
     if (subscribersChanged) save(SUBSCRIBERS_FILE, subscribers);
     console.log(`✅ Status updated (source=${source || 'unknown'})`);
 
