@@ -221,10 +221,11 @@ async function checkStatus() {
     const subscribers = load(SUBSCRIBERS_FILE, {});
     let subscribersChanged = false;
 
-    const cache = load(CACHE_FILE, { data: null, sent: {}, maintHistory: {}, messageRefs: {} });
+    const cache = load(CACHE_FILE, { data: null, sent: {}, maintHistory: {}, messageRefs: {}, updateSeen: { incidents: {}, maintenances: {} } });
     const sent = cache.sent || {};
     const maintHistory = cache.maintHistory || {};
     const messageRefs = cache.messageRefs || {};
+    const updateSeen = cache.updateSeen || { incidents: {}, maintenances: {} };
     const current = JSON.stringify({ incidents, maintenances });
 
     const channels = load(CHANNEL_FILE);
@@ -327,6 +328,25 @@ async function checkStatus() {
               if (msg?.id) messageRefs[guildId].incidents[sendKeyEN] = msg.id;
             }
 
+            const latestUpdateId = inc.updates?.length ? inc.updates[inc.updates.length - 1].id || '' : '';
+            const latestKey = `${inc.status || ''}:${latestUpdateId}`;
+            if (alreadySent && updateSeen.incidents[inc.id] !== latestKey) {
+              const updateEmbedEN = new EmbedBuilder()
+                .setTitle(`📝 Incident update: ${inc.name}`)
+                .setDescription(latestUpdateEN || (inc.resolved ? 'Incident resolved.' : 'Status update'))
+                .setColor(inc.resolved ? '#00FF00' : '#FFA500')
+                .addFields(
+                  { name: 'Status', value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.en || inc.status || '—', inline: true },
+                  { name: 'Impact', value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.en || inc.impact || '—', inline: true },
+                  { name: 'Started', value: ts(inc.started), inline: false },
+                  ...(inc.resolved ? [{ name: 'Resolved', value: ts(inc.resolved), inline: false }] : [])
+                )
+                .setTimestamp();
+              const comps = inc.resolved || !enCfg.buttons ? [] : [actionRowEN];
+              await sendSafe(ch, { embeds: [updateEmbedEN], components: comps }, `incident EN update guild=${guildId} incident=${inc.id}`);
+            }
+            updateSeen.incidents[inc.id] = latestKey;
+
             if (inc.resolved) {
               const resolvedKey = `${enCfg.id}:${inc.id}`;
               const alreadyResolved = sent[guildId].incidentsResolved.includes(resolvedKey);
@@ -378,6 +398,25 @@ async function checkStatus() {
               sent[guildId].incidents.push(sendKeyDE);
               if (msg?.id) messageRefs[guildId].incidents[sendKeyDE] = msg.id;
             }
+
+            const latestUpdateId = inc.updates?.length ? inc.updates[inc.updates.length - 1].id || '' : '';
+            const latestKey = `${inc.status || ''}:${latestUpdateId}`;
+            if (alreadySent && updateSeen.incidents[inc.id] !== latestKey) {
+              const updateEmbedDE = new EmbedBuilder()
+                .setTitle(`📝 Vorfall-Update: ${inc.translations?.name?.de || inc.name}`)
+                .setDescription(latestUpdateDE || (inc.resolved ? 'Vorfall behoben.' : 'Status-Update'))
+                .setColor(inc.resolved ? '#00FF00' : '#FFA500')
+                .addFields(
+                  { name: 'Status', value: STATUS_EMOJIS_INCIDENT[inc.status?.toUpperCase()]?.de || inc.status || '—', inline: true },
+                  { name: 'Auswirkung', value: IMPACT_EMOJIS[inc.impact?.toUpperCase()]?.de || inc.impact || '—', inline: true },
+                  { name: 'Gestartet', value: ts(inc.started), inline: false },
+                  ...(inc.resolved ? [{ name: 'Behoben', value: ts(inc.resolved), inline: false }] : [])
+                )
+                .setTimestamp();
+              const comps = inc.resolved || !deCfg.buttons ? [] : [actionRowDE];
+              await sendSafe(ch, { embeds: [updateEmbedDE], components: comps }, `incident DE update guild=${guildId} incident=${inc.id}`);
+            }
+            updateSeen.incidents[inc.id] = latestKey;
 
             if (inc.resolved) {
               const resolvedKey = `${deCfg.id}:${inc.id}`;
@@ -505,6 +544,25 @@ async function checkStatus() {
               if (msg?.id) messageRefs[guildId].maintenances[sendKeyEN] = msg.id;
             }
 
+            const latestUpdateId = m.updates?.length ? m.updates[m.updates.length - 1].id || '' : '';
+            const latestKey = `${m.status || ''}:${latestUpdateId}`;
+            if (alreadySent && updateSeen.maintenances[maintKey] !== latestKey && !isDone) {
+              const updateEmbedEN = new EmbedBuilder()
+                .setTitle(`📝 Maintenance update: ${m.translations?.name?.en || m.name}`)
+                .setDescription(latestUpdateEN || 'Status update')
+                .setColor('#FFA500')
+                .addFields(
+                  { name: 'Status', value: MAINTENANCE_STATUS[m.status?.toUpperCase()]?.en || m.status || '—', inline: true },
+                  { name: 'Impact', value: MAINTENANCE_IMPACT[m.impact?.toUpperCase()]?.en || m.impact || '—', inline: true },
+                  { name: 'Start', value: ts(m.start), inline: false },
+                  { name: 'End', value: ts(m.end), inline: false },
+                )
+                .setTimestamp();
+              const comps = !enCfg.buttons ? [] : [maintRowEN];
+              await sendSafe(ch, { embeds: [updateEmbedEN], components: comps }, `maintenance EN update guild=${guildId} maintenance=${m.id}`);
+            }
+            updateSeen.maintenances[maintKey] = latestKey;
+
             if (isDone) {
               const resolvedKey = `${enCfg.id}:${maintKeyId}`;
               const alreadyResolved = sent[guildId].maintenancesResolved.includes(resolvedKey);
@@ -557,6 +615,25 @@ async function checkStatus() {
               sent[guildId].maintenances.push(sendKeyDE);
               if (msg?.id) messageRefs[guildId].maintenances[sendKeyDE] = msg.id;
             }
+
+            const latestUpdateId = m.updates?.length ? m.updates[m.updates.length - 1].id || '' : '';
+            const latestKey = `${m.status || ''}:${latestUpdateId}`;
+            if (alreadySent && updateSeen.maintenances[maintKey] !== latestKey && !isDone) {
+              const updateEmbedDE = new EmbedBuilder()
+                .setTitle(`📝 Wartungs-Update: ${m.translations?.name?.de || m.name}`)
+                .setDescription(latestUpdateDE || 'Status-Update')
+                .setColor('#FFA500')
+                .addFields(
+                  { name: 'Status', value: MAINTENANCE_STATUS[m.status?.toUpperCase()]?.de || m.status || '—', inline: true },
+                  { name: 'Auswirkung', value: MAINTENANCE_IMPACT[m.impact?.toUpperCase()]?.de || m.impact || '—', inline: true },
+                  { name: 'Start', value: ts(m.start), inline: false },
+                  { name: 'Ende', value: ts(m.end), inline: false },
+                )
+                .setTimestamp();
+              const comps = !deCfg.buttons ? [] : [maintRowDE];
+              await sendSafe(ch, { embeds: [updateEmbedDE], components: comps }, `maintenance DE update guild=${guildId} maintenance=${m.id}`);
+            }
+            updateSeen.maintenances[maintKey] = latestKey;
 
             if (isDone) {
               const resolvedKey = `${deCfg.id}:${maintKeyId}`;
@@ -662,7 +739,7 @@ async function checkStatus() {
     }
 
     // Persist cache with history
-    save(CACHE_FILE, { data: current, sent, maintHistory, messageRefs });
+    save(CACHE_FILE, { data: current, sent, maintHistory, messageRefs, updateSeen });
     if (subscribersChanged) save(SUBSCRIBERS_FILE, subscribers);
     console.log(`✅ Status updated (source=${source || 'unknown'})`);
 
