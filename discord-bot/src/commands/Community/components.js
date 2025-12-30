@@ -11,14 +11,37 @@ const axios = require('axios');
 
 const STATUS_URL = 'https://status.scootkit.com/v2/components.json';
 
-function mapStatus(status) {
+const TEXT = {
+  en: {
+    title: (page) => `Server Status (Page ${page})`,
+    issue: (count) => `⚠️ **Oh no, ${count} servers might have issues!** ⚠️`,
+    range: (start, end, total) => `Showing servers ${start} to ${end} of ${total}`,
+    statusLabel: 'Status',
+    prev: '◀️ Previous',
+    next: 'Next ▶️',
+    forbidden: 'You cannot use these buttons!',
+    error: 'An error occurred! Could not process the request.',
+  },
+  de: {
+    title: (page) => `Serverstatus (Seite ${page})`,
+    issue: (count) => `⚠️ **Oh nein, ${count} Server könnten Probleme haben!** ⚠️`,
+    range: (start, end, total) => `Zeige Server ${start} bis ${end} von ${total}`,
+    statusLabel: 'Status',
+    prev: '◀️ Zurück',
+    next: 'Weiter ▶️',
+    forbidden: 'Du kannst diese Buttons nicht nutzen!',
+    error: 'Es ist ein Fehler aufgetreten! Anfrage konnte nicht verarbeitet werden.',
+  },
+};
+
+function mapStatus(status, lang) {
   switch (status) {
     case 'OPERATIONAL': return '🟢 Online';
-    case 'PARTIALOUTAGE': return '🟡 Eingeschränkt';
-    case 'DEGRADEDPERFORMANCE': return '🟠 Teilweise Ausfall';
-    case 'MAJOROUTAGE': return '🔴 Offline';
-    case 'UNDERMAINTENANCE': return '⚪ Wird Untersucht'
-    default: return '⚪ Unbekannt';
+    case 'PARTIALOUTAGE': return lang === 'de' ? '🟡 Eingeschränkt' : '🟡 Limited';
+    case 'DEGRADEDPERFORMANCE': return lang === 'de' ? '🟠 Teilweise Störung' : '🟠 Partial Outage';
+    case 'MAJOROUTAGE': return lang === 'de' ? '🔴 Offline' : '🔴 Offline';
+    case 'UNDERMAINTENANCE': return lang === 'de' ? '⚪ Wartung' : '⚪ Under Maintenance';
+    default: return lang === 'de' ? '⚪ Unbekannt' : '⚪ Unknown';
   }
 }
 
@@ -41,10 +64,23 @@ function sortComponents(components) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('server-status')
-    .setDescription('Zeigt Scootkit Servers ob die Online oder Offline sind.'),
+    .setDescription('Shows the status of Scootkit servers.')
+    .addStringOption(option =>
+      option
+        .setName('language')
+        .setDescription('Choose English or German')
+        .setRequired(false)
+        .addChoices(
+          { name: 'English', value: 'en' },
+          { name: 'Deutsch', value: 'de' },
+        )
+    ),
 
   async execute(interaction) {
     await interaction.deferReply();
+
+    const lang = interaction.options.getString('language') || 'en';
+    const t = TEXT[lang] || TEXT.en;
 
     try {
       const response = await axios.get(STATUS_URL);
@@ -63,18 +99,18 @@ module.exports = {
 
         const embed = new EmbedBuilder()
           .setColor('#0099ff')
-          .setTitle(`Server Status (Seite ${Math.floor(i / itemsPerPage) + 1})`)
+          .setTitle(t.title(Math.floor(i / itemsPerPage) + 1))
           .setDescription(
             (hasProblem
-              ? `⚠️ **Oh nein, ${problemServers.length} Server könnten Probleme haben!** ⚠️\n\n`
+              ? `${t.issue(problemServers.length)}\n\n`
               : '') +
-            `Zeigt Server ${i + 1} bis ${i + currentItems.length} von ${components.length}`
+            t.range(i + 1, i + currentItems.length, components.length)
           );
 
         currentItems.forEach(component => {
           embed.addFields({
             name: component.name,
-            value: `Status: **${mapStatus(component.status)}**`,
+            value: `${t.statusLabel}: **${mapStatus(component.status, lang)}**`,
             inline: false,
           });
         });
@@ -82,17 +118,16 @@ module.exports = {
         embeds.push(embed);
       }
 
-
       const createButtons = (currentPage) => {
         return new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId('prev_page')
-            .setLabel('◀️ Vorherige')
+            .setLabel(t.prev)
             .setStyle(ButtonStyle.Primary)
             .setDisabled(currentPage === 0),
           new ButtonBuilder()
             .setCustomId('next_page')
-            .setLabel('Nächste ▶️')
+            .setLabel(t.next)
             .setStyle(ButtonStyle.Primary)
             .setDisabled(currentPage === embeds.length - 1)
         );
@@ -112,7 +147,7 @@ module.exports = {
 
       collector.on('collect', async (buttonInteraction) => {
         if (buttonInteraction.user.id !== interaction.user.id) {
-          await buttonInteraction.reply({ content: 'Du kannst diese Buttons nicht benutzen!', flags: MessageFlags.Ephemeral });
+          await buttonInteraction.reply({ content: t.forbidden, flags: MessageFlags.Ephemeral });
           return;
         }
 
@@ -133,8 +168,8 @@ module.exports = {
       });
 
     } catch (error) {
-      console.error('Fehler bei der Erstellung der Paginierungsseite:', error);
-      await interaction.editReply({ content: 'Ein Fehler ist aufgetreten! Die Anfrage konnte nicht verarbeitet werden.', flags: MessageFlags.Ephemeral });
+      console.error('Error creating pagination pages:', error);
+      await interaction.editReply({ content: t.error, flags: MessageFlags.Ephemeral });
     }
   },
 };

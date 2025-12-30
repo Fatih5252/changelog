@@ -1,5 +1,44 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
+const TEXT = {
+  en: {
+    errors: {
+      chooseOne: '❌ Please provide only ONE option: either select a member OR enter an ID.',
+      missing: '❌ You must either select a user or provide an ID.',
+      notFound: '❌ Could not find the user. Please check the ID.',
+    },
+    title: (user, id) => `👤 User Info for ${user} (${id})`,
+    fields: {
+      username: 'Username',
+      discriminator: 'Discriminator',
+      badges: 'Badges',
+      created: 'Account Created',
+    },
+    buttons: {
+      avatar: '📥 Download Avatar',
+      banner: '📥 Download Banner',
+    },
+  },
+  de: {
+    errors: {
+      chooseOne: '❌ Bitte nur EINE Option nutzen: entweder Mitglied auswählen ODER eine ID eingeben.',
+      missing: '❌ Du musst entweder einen Nutzer auswählen oder eine ID angeben.',
+      notFound: '❌ Nutzer konnte nicht gefunden werden. Bitte prüfe die ID.',
+    },
+    title: (user, id) => `👤 Nutzerinfo für ${user} (${id})`,
+    fields: {
+      username: 'Benutzername',
+      discriminator: 'Discriminator',
+      badges: 'Abzeichen',
+      created: 'Konto erstellt',
+    },
+    buttons: {
+      avatar: '📥 Avatar herunterladen',
+      banner: '📥 Banner herunterladen',
+    },
+  },
+};
+
 const FLAG_MAP = {
   Staff: '👨‍💼 Discord Staff',
   Partner: '🤝 Partner',
@@ -17,33 +56,45 @@ const FLAG_MAP = {
 };
 
 function formatFlags(flags) {
-  if (!flags || flags.length === 0) return 'Keine';
+  if (!flags || flags.length === 0) return 'None';
   return flags.map(f => FLAG_MAP[f] || f).join('\n');
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('user-info')
-    .setDescription('Zeigt Informationen über einen User an.')
+    .setDescription('Shows information about a user.')
     .addUserOption(option =>
       option.setName('member')
-        .setDescription('Wähle einen User, der auf dem Server ist')
+        .setDescription('Select a server member')
         .setRequired(false)
     )
     .addStringOption(option =>
       option.setName('id')
-        .setDescription('Gib eine User-ID an, wenn der User nicht auf dem Server ist')
+        .setDescription('Provide a user ID if the user is not on the server')
         .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('language')
+        .setDescription('Choose English or German')
+        .setRequired(false)
+        .addChoices(
+          { name: 'English', value: 'en' },
+          { name: 'Deutsch', value: 'de' },
+        )
     ),
 
   async execute(interaction) {
     const member = interaction.options.getUser('member');
     const id = interaction.options.getString('id');
+    const lang = interaction.options.getString('language') || 'en';
+    const t = TEXT[lang] || TEXT.en;
     let user;
 
     if (member && id && member.id !== id) {
       return interaction.reply({
-        content: '❌ Bitte gib nur EINE Option an – entweder User auswählen ODER ID eingeben.',
+        content: t.errors.chooseOne,
       });
     }
 
@@ -54,12 +105,12 @@ module.exports = {
         user = await interaction.client.users.fetch(id, { force: true });
       } else {
         return interaction.reply({
-          content: '❌ Du musst entweder einen User auswählen oder eine ID angeben.',
+          content: t.errors.missing,
         });
       }
     } catch {
       return interaction.reply({
-        content: '❌ Konnte User nicht finden. Überprüfe die ID.',
+        content: t.errors.notFound,
       });
     }
 
@@ -71,13 +122,13 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor('#5865F2')
-      .setTitle(`👤 Benutzer-Info für ${user.username} (${user.id})`)
+      .setTitle(t.title(user.username, user.id))
       .setThumbnail(avatarURL)
       .addFields(
-        { name: 'Tag', value: user.username || 'N/A', inline: true },
-        { name: 'Discriminator', value: user.discriminator || 'N/A', inline: true },
-        { name: 'Badges', value: formatFlags(badges), inline: false },
-        { name: 'Erstellt am', value: `<t:${Math.floor(user.createdTimestamp / 1000)}:F>`, inline: false }
+        { name: t.fields.username, value: user.username || 'N/A', inline: true },
+        { name: t.fields.discriminator, value: user.discriminator || 'N/A', inline: true },
+        { name: t.fields.badges, value: formatFlags(badges), inline: false },
+        { name: t.fields.created, value: `<t:${Math.floor(user.createdTimestamp / 1000)}:F>`, inline: false }
       )
       .setImage(bannerURL || null)
       .setFooter({ text: `ID: ${user.id}` })
@@ -85,7 +136,7 @@ module.exports = {
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setLabel('📥 Avatar herunterladen')
+        .setLabel(t.buttons.avatar)
         .setStyle(ButtonStyle.Link)
         .setURL(avatarURL)
     );
@@ -93,7 +144,7 @@ module.exports = {
     if (bannerURL) {
       row.addComponents(
         new ButtonBuilder()
-          .setLabel('📥 Banner herunterladen')
+          .setLabel(t.buttons.banner)
           .setStyle(ButtonStyle.Link)
           .setURL(bannerURL)
       );

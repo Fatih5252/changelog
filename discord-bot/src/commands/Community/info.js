@@ -3,6 +3,45 @@ const axios = require('axios');
 
 const STATUS_URL = 'https://status.scootkit.com/v2/components.json';
 
+const TEXT = {
+  en: {
+    title: (name) => `📡 Status of ${name}`,
+    notFound: '❌ Server not found.',
+    error: '❌ Error fetching server status. Please try again later.',
+    footer: 'Scootkit Server Status',
+    fields: {
+      server: 'Server',
+      status: 'Status',
+      location: 'Location',
+      company: 'Company',
+      description: 'Description',
+      group: 'Group',
+      noDescription: 'No description available.',
+      noGroup: 'No group',
+      unknownLocation: 'Unknown Location',
+      unknownCompany: 'Unknown Company',
+    },
+  },
+  de: {
+    title: (name) => `📡 Status von ${name}`,
+    notFound: '❌ Server nicht gefunden.',
+    error: '❌ Fehler beim Abrufen des Serverstatus. Bitte später erneut versuchen.',
+    footer: 'Scootkit Server-Status',
+    fields: {
+      server: 'Server',
+      status: 'Status',
+      location: 'Standort',
+      company: 'Firma',
+      description: 'Beschreibung',
+      group: 'Gruppe',
+      noDescription: 'Keine Beschreibung verfügbar.',
+      noGroup: 'Keine Gruppe',
+      unknownLocation: 'Unbekannter Standort',
+      unknownCompany: 'Unbekannte Firma',
+    },
+  },
+};
+
 const BOT_HOSTS = [
     { name: 'Bot-Host #3', id: 'clwtfvzs974229cdltrcj18ax8' },
     { name: 'Bot-Host #4', id: 'clwtfwf1b73370c6ltqkpntn22' },
@@ -72,27 +111,47 @@ const HOST_LOCATIONS = {
 }
 
 const STATUS_MAP = {
-  operational: { name: 'Online', emoji: '🟢', color: '#00ff00' },
-  degraded_performance: { name: 'Eingeschränkt', emoji: '🟡', color: '#ffcc00' },
-  partial_outage: { name: 'Teilweiser Ausfall', emoji: '🟠', color: '#ff6600' },
-  major_outage: { name: 'Offline', emoji: '🔴', color: '#ff0000' },
-  default: { name: 'Unbekannt', emoji: '⚪', color: '#808080' },
+  en: {
+    operational: { name: 'Online', emoji: '🟢', color: '#00ff00' },
+    degraded_performance: { name: 'Degraded', emoji: '🟡', color: '#ffcc00' },
+    partial_outage: { name: 'Partial Outage', emoji: '🟠', color: '#ff6600' },
+    major_outage: { name: 'Offline', emoji: '🔴', color: '#ff0000' },
+    default: { name: 'Unknown', emoji: '⚪', color: '#808080' },
+  },
+  de: {
+    operational: { name: 'Online', emoji: '🟢', color: '#00ff00' },
+    degraded_performance: { name: 'Eingeschränkt', emoji: '🟡', color: '#ffcc00' },
+    partial_outage: { name: 'Teilweise Störung', emoji: '🟠', color: '#ff6600' },
+    major_outage: { name: 'Offline', emoji: '🔴', color: '#ff0000' },
+    default: { name: 'Unbekannt', emoji: '⚪', color: '#808080' },
+  },
 };
 
-function getStatusDetails(status) {
-  return STATUS_MAP[status.toLowerCase()] || STATUS_MAP.default;
+function getStatusDetails(status, lang) {
+  const map = STATUS_MAP[lang] || STATUS_MAP.en;
+  return map[status.toLowerCase()] || map.default;
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('server-info')
-    .setDescription('Zeigt den Status eines bestimmten Bot-Hosts an.')
+    .setDescription('Shows the status of a specific Bot-Host.')
     .addStringOption(option =>
       option
         .setName('host')
-        .setDescription('Wähle den Bot-Host aus')
+        .setDescription('Select the Bot-Host')
         .setAutocomplete(true)
         .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('language')
+        .setDescription('Choose English or German')
+        .setRequired(false)
+        .addChoices(
+          { name: 'English', value: 'en' },
+          { name: 'Deutsch', value: 'de' },
+        )
     ),
 
   async autocomplete(interaction) {
@@ -111,7 +170,7 @@ module.exports = {
         }))
       );
     } catch (error) {
-      console.error('Fehler im Autocomplete:', error);
+      console.error('Error in autocomplete:', error);
       await interaction.respond([]);
     }
   },
@@ -120,6 +179,8 @@ module.exports = {
     await interaction.deferReply();
 
     const selectedHostId = interaction.options.getString('host');
+    const lang = interaction.options.getString('language') || 'en';
+    const t = TEXT[lang] || TEXT.en;
 
     try {
       const response = await axios.get(STATUS_URL);
@@ -128,31 +189,31 @@ module.exports = {
       const hostComponent = components.find(c => c.id === selectedHostId);
 
       if (!hostComponent) {
-        return interaction.editReply({ content: '❌ Der Server wurde nicht gefunden.' });
+        return interaction.editReply({ content: t.notFound });
       }
 
-      const statusDetails = getStatusDetails(hostComponent.status);
+      const statusDetails = getStatusDetails(hostComponent.status, lang);
 
-      const info = HOST_LOCATIONS[hostComponent.id] || { location: 'Unbekannte Location', company: 'Unbekannte Firma' };
+      const info = HOST_LOCATIONS[hostComponent.id] || { location: t.fields.unknownLocation, company: t.fields.unknownCompany };
 
       const embed = new EmbedBuilder()
         .setColor(statusDetails.color)
-        .setTitle(`📡 Status von ${hostComponent.name}`)
+        .setTitle(t.title(hostComponent.name))
         .addFields(
-            { name: 'Server', value: hostComponent.name, inline: true },
-            { name: 'Status', value: `${statusDetails.emoji} ${statusDetails.name}`, inline: true },
-            { name: 'Location', value: info.location, inline: false },
-            { name: 'Firma', value: info.company, inline: true },
-            { name: 'Beschreibung', value: hostComponent.description || 'Keine Beschreibung verfügbar.', inline: false },
-            { name: 'Gruppe', value: hostComponent.group?.name || 'Keine Gruppe', inline: false }
+            { name: t.fields.server, value: hostComponent.name, inline: true },
+            { name: t.fields.status, value: `${statusDetails.emoji} ${statusDetails.name}`, inline: true },
+            { name: t.fields.location, value: info.location, inline: false },
+            { name: t.fields.company, value: info.company, inline: false },
+            { name: t.fields.description, value: hostComponent.description || t.fields.noDescription, inline: false },
+            { name: t.fields.group, value: hostComponent.group?.name || t.fields.noGroup, inline: false }
         )
-        .setFooter({ text: 'Scootkit Server Status' })
+        .setFooter({ text: t.footer })
         .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {
-      console.error('Fehler beim Abrufen des Serverstatus:', error);
-      await interaction.editReply({ content: '❌ Fehler beim Abrufen des Serverstatus. Bitte versuche es später erneut.' });
+      console.error('Error fetching server status:', error);
+      await interaction.editReply({ content: t.error });
     }
   },
 };

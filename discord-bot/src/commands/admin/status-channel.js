@@ -2,6 +2,31 @@ const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('disc
 const fs = require('fs');
 const CHANNEL_FILE = './src/status_channels.json';
 
+const TEXT = {
+  en: {
+    set: (ch, buttons) => `✅ English status channel set: ${ch} • Buttons: ${buttons ? 'on' : 'off'}`,
+    removed: '✅ English status channel removed',
+    missing: '❌ No English status channel set',
+    already: '❌ A status channel for this language already exists. Remove it first with /status-channel remove.',
+    show: (de, en) => `🇩🇪 German status channel: ${de}\n🇬🇧 English status channel: ${en}`,
+    invalidLang: '❌ Invalid language selection.',
+    setDe: (ch, buttons) => `✅ German status channel set: ${ch} • Buttons: ${buttons ? 'on' : 'off'}`,
+    removedDe: '✅ German status channel removed',
+    missingDe: '❌ No German status channel set',
+  },
+  de: {
+    set: (ch, buttons) => `✅ Deutscher Status-Channel gesetzt: ${ch} • Buttons: ${buttons ? 'an' : 'aus'}`,
+    removed: '✅ Deutscher Status-Channel entfernt',
+    missing: '❌ Kein deutscher Status-Channel gesetzt',
+    already: '❌ Für diese Sprache ist bereits ein Status-Channel eingetragen. Bitte zuerst mit /status-channel remove entfernen.',
+    show: (de, en) => `🇩🇪 Deutscher Status-Channel: ${de}\n🇬🇧 Englischer Status-Channel: ${en}`,
+    invalidLang: '❌ Ungültige Sprachauswahl.',
+    setDe: (ch, buttons) => `✅ Deutscher Status-Channel gesetzt: ${ch} • Buttons: ${buttons ? 'an' : 'aus'}`,
+    removedDe: '✅ Deutscher Status-Channel entfernt',
+    missingDe: '❌ Kein deutscher Status-Channel gesetzt',
+  },
+};
+
 function loadChannels() {
   if (!fs.existsSync(CHANNEL_FILE)) return {};
   return JSON.parse(fs.readFileSync(CHANNEL_FILE, 'utf8'));
@@ -17,21 +42,17 @@ module.exports = {
     .setDescription('Manage status channels / Status-Channels verwalten')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(sub =>
-      sub.setName('einrichten-de')
-        .setDescription('Deutschen Status-Channel festlegen')
-        .addChannelOption(opt => opt.setName('channel').setDescription('Wähle den Channel aus').setRequired(true))
-        .addBooleanOption(opt => opt.setName('buttons').setDescription('Buttons für Benachrichtigungen anzeigen').setRequired(true)))
+      sub.setName('setup')
+        .setDescription('Status channel festlegen / Set status channel')
+        .addStringOption(opt => opt.setName('language').setDescription('Sprache / Language').setRequired(true)
+          .addChoices({ name: 'Deutsch', value: 'de' }, { name: 'English', value: 'en' }))
+        .addChannelOption(opt => opt.setName('channel').setDescription('Channel auswählen / Select channel').setRequired(true))
+        .addBooleanOption(opt => opt.setName('buttons').setDescription('Buttons anzeigen? / Show buttons?').setRequired(true)))
     .addSubcommand(sub =>
-      sub.setName('entfernen-de')
-        .setDescription('Deutschen Status-Channel entfernen'))
-    .addSubcommand(sub =>
-      sub.setName('setup-en')
-        .setDescription('Set English status channel')
-        .addChannelOption(opt => opt.setName('channel').setDescription('Select the channel').setRequired(true))
-        .addBooleanOption(opt => opt.setName('buttons').setDescription('Show buttons for notifications').setRequired(true)))
-    .addSubcommand(sub =>
-      sub.setName('remove-en')
-        .setDescription('Remove English status channel'))
+      sub.setName('remove')
+        .setDescription('Status channel entfernen / Remove status channel')
+        .addStringOption(opt => opt.setName('language').setDescription('Sprache / Language').setRequired(true)
+          .addChoices({ name: 'Deutsch', value: 'de' }, { name: 'English', value: 'en' })))
     .addSubcommand(sub =>
       sub.setName('show')
         .setDescription('Show current status channels / Zeige aktuelle Channels')),
@@ -49,42 +70,46 @@ module.exports = {
       return { id: channelId, buttons: showButtons, lang: langDefault };
     };
 
-    if (sub === 'einrichten-de') {
+    if (sub === 'setup') {
+      const langOpt = interaction.options.getString('language');
       const ch = interaction.options.getChannel('channel');
       const buttons = interaction.options.getBoolean('buttons');
-      if (!channels[guildId]) channels[guildId] = {};
-      channels[guildId].de = makeEntry(ch.id, buttons, 'de');
-      saveChannels(channels);
-      await interaction.reply({ content: `✅ Deutscher Status-Channel gesetzt: ${ch} • Buttons: ${buttons === false ? 'aus' : 'an'}`, flags: MessageFlags.Ephemeral  });
-    } else if (sub === 'entfernen-de') {
-      if (channels[guildId]?.de) {
-        delete channels[guildId].de;
-        saveChannels(channels);
-        await interaction.reply({ content: `✅ Deutscher Status-Channel entfernt`, flags: MessageFlags.Ephemeral });
-      } else {
-        await interaction.reply({ content: `❌ Kein deutscher Status-Channel gesetzt`, flags: MessageFlags.Ephemeral });
+      const t = TEXT[langOpt] || TEXT.en;
+      if (!['de', 'en'].includes(langOpt)) {
+        await interaction.reply({ content: t.invalidLang, flags: MessageFlags.Ephemeral });
+        return;
       }
-    } else if (sub === 'setup-en') {
-      const ch = interaction.options.getChannel('channel');
-      const buttons = interaction.options.getBoolean('buttons');
-      if (!channels[guildId]) channels[guildId] = {};
-      channels[guildId].en = makeEntry(ch.id, buttons, 'en');
+      ensureGuild();
+      if (channels[guildId][langOpt]) {
+        await interaction.reply({ content: t.already, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      channels[guildId][langOpt] = makeEntry(ch.id, buttons, langOpt);
       saveChannels(channels);
-      await interaction.reply({ content: `✅ English status channel set: ${ch} • Buttons: ${buttons === false ? 'off' : 'on'}`, flags: MessageFlags.Ephemeral });
-    } else if (sub === 'remove-en') {
-      if (channels[guildId]?.en) {
-        delete channels[guildId].en;
+      const msg = langOpt === 'de' ? t.setDe(ch, buttons !== false) : t.set(ch, buttons !== false);
+      await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+    } else if (sub === 'remove') {
+      const langOpt = interaction.options.getString('language');
+      const t = TEXT[langOpt] || TEXT.en;
+      if (!['de', 'en'].includes(langOpt)) {
+        await interaction.reply({ content: t.invalidLang, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      if (channels[guildId]?.[langOpt]) {
+        delete channels[guildId][langOpt];
         saveChannels(channels);
-        await interaction.reply({ content: `✅ English status channel removed`, flags: MessageFlags.Ephemeral });
+        const msg = langOpt === 'de' ? t.removedDe : t.removed;
+        await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
       } else {
-        await interaction.reply({ content: `❌ No English status channel set`, flags: MessageFlags.Ephemeral });
+        const msg = langOpt === 'de' ? t.missingDe : t.missing;
+        await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
       }
     } else if (sub === 'show') {
       const deEntry = channels[guildId]?.de;
       const enEntry = channels[guildId]?.en;
       const chDE = deEntry ? `<#${typeof deEntry === 'string' ? deEntry : deEntry.id}> (Buttons: ${deEntry.buttons === false ? 'aus' : 'an'})` : 'Keiner';
       const chEN = enEntry ? `<#${typeof enEntry === 'string' ? enEntry : enEntry.id}> (Buttons: ${enEntry.buttons === false ? 'off' : 'on'})` : 'None';
-      await interaction.reply({ content: `🇩🇪 Deutscher Status-Channel: ${chDE}\n🇬🇧 English status channel: ${chEN}`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: TEXT.de.show(chDE, chEN), flags: MessageFlags.Ephemeral });
     }
   }
 };
